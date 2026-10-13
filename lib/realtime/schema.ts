@@ -37,6 +37,11 @@ export interface CaptionPayload {
   lang?: string;
   /** sequence number per room for ordering / gap detection */
   seq: number;
+  /**
+   * Groups interim updates with their final (Phase 2 server STT).
+   * Interim messages sharing an utteranceId replace each other client-side.
+   */
+  utteranceId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -92,11 +97,25 @@ export const AmbientMessage = z.object({
 export const PingMessage = z.object({ type: z.literal("ping") });
 export const LeaveMessage = z.object({ type: z.literal("leave") });
 
+/** Begin server-side streaming STT for this peer (Phase 2) */
+export const SttStartMessage = z.object({
+  type: z.literal("stt-start"),
+  /** BCP-47 tag, e.g. "en". Defaults to server STT_LANGUAGE. */
+  lang: z.string().max(10).optional(),
+  /** boosted vocabulary terms (max 10 forwarded to the engine) */
+  keywords: z.array(z.string().max(40)).max(20).optional(),
+});
+
+/** End server-side streaming STT for this peer */
+export const SttStopMessage = z.object({ type: z.literal("stt-stop") });
+
 export const ClientMessage = z.discriminatedUnion("type", [
   JoinMessage,
   SignalMessage,
   CaptionMessage,
   AmbientMessage,
+  SttStartMessage,
+  SttStopMessage,
   PingMessage,
   LeaveMessage,
 ]);
@@ -107,14 +126,18 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 /* Server → Client messages                                             */
 /* ------------------------------------------------------------------ */
 
+export type SttProviderName = "deepgram" | "mock" | "none";
+export type SttStatus = "active" | "idle" | "error" | "unavailable";
+
 export type ServerMessage =
-  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[] }
+  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName }
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; peerId: string; reason: "left" | "disconnected" }
   | { type: "signal"; fromId: string; data: unknown }
   | { type: "caption"; fromId: string; caption: CaptionPayload }
   | { type: "ambient"; fromId: string; event: AmbientPayload }
   | { type: "room-state"; roomId: string; peerCount: number }
+  | { type: "stt-status"; status: SttStatus; provider: SttProviderName; message?: string }
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
@@ -128,6 +151,8 @@ export const SERVER_ERRORS = {
   UNKNOWN_PEER: "UNKNOWN_PEER",
   NOT_IN_ROOM: "NOT_IN_ROOM",
   RATE_LIMITED: "RATE_LIMITED",
+  STT_UNAVAILABLE: "STT_UNAVAILABLE",
+  STT_FAILED: "STT_FAILED",
 } as const;
 export type ServerErrorCode = (typeof SERVER_ERRORS)[keyof typeof SERVER_ERRORS];
 

@@ -16,14 +16,12 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **1.4 Caption-over-data-channel** — Caption events flow as typed JSON over the WebSocket (schema in `lib/realtime/schema.ts`, server assigns monotonic `seq` per room). **Status: shipped + tested.**
 - [x] **1.5 Reconnection & resilience** — Auto-reconnect with exponential backoff (1s→15s + jitter), automatic room re-join on reconnect, heartbeat kills silent sockets. **Status: shipped.**
 
-## Phase 2 — Speech-to-Text (Live Captions)
+## Phase 2 — Speech-to-Text (Live Captions)  ✅ COMPLETE
 
-Currently: Web Speech API in-browser + demo-chat simulation.
-
-- [ ] **2.1 Deepgram / Whisper streaming STT** — Server-side audio ingestion via WebSocket, streaming partial + final results back to clients. (Deepgram Nova-2 or Whisper-large-v3 via `faster-whisper` / `deepgram-python`.)
-- [ ] **2.2 Speaker diarization** — Server-side speaker embedding (pyannote.audio) or Deepgram diarization to label "Speaker A / B / C" server-side, removing the client-side mock.
-- [ ] **2.3 Multi-language support** — Auto language detection + per-room language config; wire into the STT session.
-- [ ] **2.4 Custom vocabulary** — Boost medical/technical terms (user-supplied phrase lists already stored per-account in quick phrases).
+- [x] **2.1 Deepgram / Whisper streaming STT** — Mic audio (PCM16 mono 16 kHz via AudioWorklet) streams as binary WebSocket frames to the signaling server, which fans out to a per-peer provider session and broadcasts interim + final `caption` messages back to the room. **Status: shipped.** Provider selected by `STT_PROVIDER` (`auto` = Deepgram when `DEEPGRAM_API_KEY` is set, else mock). Whisper can implement the same `SttProvider` interface later (`server/stt/provider.ts`).
+- [x] **2.2 Speaker diarization** — Deepgram `diarize=true`; server maps `(peer, engineSpeaker)` pairs to room-scoped `Speaker A/B/C…` labels, grouped by `utteranceId`. **Status: shipped.**
+- [x] **2.3 Multi-language support** — `stt-start` accepts `lang` (BCP-47, default `STT_LANGUAGE`); forwarded to the engine per session. **Status: shipped.**
+- [x] **2.4 Custom vocabulary** — `stt-start` accepts `keywords[]` (or server `STT_KEYWORDS`); forwarded as Deepgram keyword boosts. **Status: shipped.**
 
 ## Phase 3 — Text-to-Speech
 
@@ -96,7 +94,7 @@ Currently: `localStorage` via `aura-settings` key.
 
 | Feature | Current simulation | Replaced by |
 |---|---|---|
-| Demo chat | `DEMO_CONVERSATION` in `mock-data.ts` | Phase 2.1 real STT stream |
+| Demo chat | `DEMO_CONVERSATION` in `mock-data.ts` | Kept as no-mic demo; live path is Phase 2.1 server STT |
 | Ambient sounds | `setInterval` + `AMBIENT_SOUNDS` | Phase 4.2 real classifier |
 | Interpreter queue | `INTERPRETER_QUEUE_STEPS` timers | Phase 5.2 real queue |
 | Custom phrases | `localStorage` | Phase 6.4 phrases API |
@@ -104,6 +102,7 @@ Currently: `localStorage` via `aura-settings` key.
 | TTS | browser `speechSynthesis` | Phase 3.1 ElevenLabs |
 | Captions transport | ~~React context in-memory~~ | ✅ Phase 1.4 shipped — WebSocket data channel live |
 | WebRTC signaling | ~~n/a~~ | ✅ Phase 1.1/1.2 relay shipped (`server/signaling-server.ts`) |
+| Live STT engine | ~~Web Speech API only~~ | ✅ Phase 2 shipped — server STT (Deepgram/mock) with browser fallback |
 
 ## Phase 1 delivery notes
 

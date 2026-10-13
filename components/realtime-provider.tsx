@@ -29,6 +29,9 @@ interface RealtimeContextValue {
   sendSignal: (targetId: string, data: unknown) => void;
   sendCaption: (caption: Omit<CaptionPayload, "seq">) => void;
   sendAmbient: (event: AmbientPayload) => void;
+  sendAudio: (pcm: ArrayBuffer | Uint8Array) => void;
+  startStt: (opts?: { lang?: string; keywords?: string[] }) => void;
+  stopStt: () => void;
   /** register a listener for inbound server messages; returns an unsubscribe fn */
   onMessage: (handler: (msg: ServerMessage) => void) => () => void;
 }
@@ -111,6 +114,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     clientRef.current?.sendAmbient(event);
   }, []);
 
+  const sendAudio = useCallback((pcm: ArrayBuffer | Uint8Array) => {
+    clientRef.current?.sendAudio(pcm);
+  }, []);
+
+  const startStt = useCallback((opts?: { lang?: string; keywords?: string[] }) => {
+    clientRef.current?.startStt(opts);
+  }, []);
+
+  const stopStt = useCallback(() => {
+    clientRef.current?.stopStt();
+  }, []);
+
   const onMessage = useCallback((handler: (msg: ServerMessage) => void) => {
     handlersRef.current.add(handler);
     return () => {
@@ -129,9 +144,12 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       sendSignal,
       sendCaption,
       sendAmbient,
+      sendAudio,
+      startStt,
+      stopStt,
       onMessage,
     }),
-    [connectionState, clientId, peers, roomId, join, leave, sendSignal, sendCaption, sendAmbient, onMessage]
+    [connectionState, clientId, peers, roomId, join, leave, sendSignal, sendCaption, sendAmbient, sendAudio, startStt, stopStt, onMessage]
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

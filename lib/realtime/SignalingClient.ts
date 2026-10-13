@@ -150,6 +150,21 @@ export class SignalingClient {
     this.sendRaw({ type: "ping" });
   }
 
+  /** mic audio chunk (PCM16 mono 16kHz) for the sender's STT session */
+  sendAudio(pcm: ArrayBuffer | Uint8Array): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(pcm);
+    }
+  }
+
+  startStt(opts?: { lang?: string; keywords?: string[] }): void {
+    this.sendRaw({ type: "stt-start", lang: opts?.lang, keywords: opts?.keywords });
+  }
+
+  stopStt(): void {
+    this.sendRaw({ type: "stt-stop" });
+  }
+
   /* ---------------- internals ---------------- */
 
   private sendRaw(msg: ClientMessage): void {

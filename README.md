@@ -18,6 +18,22 @@ Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run test:s
 
 **Live rooms**: open the **Live session** button in the header (wifi icon), pick a room code, and join. Open the page in a second tab/window with the same code — both sides sync instantly. See `BACKEND_ROADMAP.md` for the phased plan to swap demo simulations for real services.
 
+## Live speech-to-text (Phase 2)
+
+**Start live captions** prefers server STT when you're in a room: mic audio is captured via an AudioWorklet (PCM16 mono 16 kHz), streamed as binary WebSocket frames to the signaling server, transcribed, and broadcast back as captions with diarized `Speaker A/B/C…` labels. Without a room (or if the server has no engine), it falls back to the browser Web Speech API.
+
+Configure via `.env.local` (see `.env.example`):
+
+```bash
+STT_PROVIDER=auto        # auto | deepgram | mock
+DEEPGRAM_API_KEY=        # set to enable real transcription (Nova-3)
+STT_MODEL=nova-3
+STT_LANGUAGE=en
+STT_KEYWORDS=penicillin,triage   # boosted vocabulary
+```
+
+Without a `DEEPGRAM_API_KEY`, the scripted mock engine runs so the whole pipeline works out of the box.
+
 ## The three modes
 
 | Mode | Route | Who it's for |

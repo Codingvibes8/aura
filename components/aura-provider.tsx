@@ -22,6 +22,8 @@ export interface Caption {
   speaker: CaptionSpeaker;
   text: string;
   timestamp: number;
+  /** server diarization label (e.g. "Speaker C") — shown instead of the default badge */
+  label?: string;
 }
 
 export interface AmbientEvent {
