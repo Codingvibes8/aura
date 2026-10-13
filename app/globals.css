@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/* Design tokens — semantic colors cascade from CSS variables so       */
+/* light / dark / high-contrast themes swap instantly.                */
+/* ------------------------------------------------------------------ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@theme {
+  --animate-slide-up: slide-up 0.35s ease-out;
+  --animate-flash-ring: flash-ring 0.7s ease-out forwards;
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flash-ring {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Themes                                                              */
+/* ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+  --background: #faf9f7;
+  --foreground: #1b1a17;
+  --card: #ffffff;
+  --card-foreground: #1b1a17;
+  --muted: #f1efea;
+  --muted-foreground: #6f6c64;
+  --border: #e4e2db;
+  --input: #e4e2db;
+  --ring: #4f46e5;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0fb;
+  --secondary-foreground: #3730a3;
+  --accent: #fdf3d7;
+  --accent-foreground: #854d0e;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0b0b0f;
+  --foreground: #f4f4f5;
+  --card: #131318;
+  --card-foreground: #f4f4f5;
+  --muted: #1d1d24;
+  --muted-foreground: #a1a1aa;
+  --border: #2c2c35;
+  --input: #2c2c35;
+  --ring: #818cf8;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1e1e28;
+  --secondary-foreground: #c7d2fe;
+  --accent: #26263a;
+  --accent-foreground: #e0e7ff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+}
+
+/* WCAG AAA high-contrast theme — pure black/white, yellow accents */
+.hc {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #000000;
+  --card-foreground: #ffffff;
+  --muted: #1a1a1a;
+  --muted-foreground: #e5e5e5;
+  --border: #ffffff;
+  --input: #3f3f3f;
+  --ring: #ffd60a;
+  --primary: #ffd60a;
+  --primary-foreground: #000000;
+  --secondary: #262626;
+  --secondary-foreground: #ffffff;
+  --accent: #1a1a1a;
+  --accent-foreground: #ffd60a;
+  --destructive: #ff6b6b;
+  --destructive-foreground: #000000;
+}
+
+/* ------------------------------------------------------------------ */
+/* Accessibility primitives                                            */
+/* ------------------------------------------------------------------ */
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.hc :focus-visible {
+  outline-width: 4px;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -120%;
+  z-index: 100;
+  border-radius: 0.5rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.75rem 1.25rem;
+  font-weight: 600;
+  transition: top 0.15s ease-out;
+}
+
+.skip-link:focus-visible {
+  top: 0.5rem;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+  background: var(--muted);
+}
+
+/* Respect OS-level reduced motion, and the in-app toggle */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.reduced-motion,
+.reduced-motion * ,
+.reduced-motion *::before,
+.reduced-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
