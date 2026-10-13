@@ -13,6 +13,7 @@
     "test:ambient": "node --no-warnings server/test-ambient.ts",
     "test:vrs": "node --no-warnings server/test-vrs.ts",
     "test:supabase": "node --no-warnings server/test-supabase.ts",
+    "test:crypto": "node --no-warnings server/test-crypto.ts",
     "lint": "eslint"
   },
   "dependencies": {

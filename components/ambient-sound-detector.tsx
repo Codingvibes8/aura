@@ -6,6 +6,8 @@ import { Sparkles, Trash2, Vibrate } from "lucide-react";
 import { useAura, type AmbientEvent } from "@/components/aura-provider";
 import { useRealtime } from "@/components/realtime-provider";
 import { useRoomAmbient } from "@/lib/realtime/use-room-ambient";
+import { openEnvelope } from "@/lib/realtime/crypto";
+import { roomKey } from "@/lib/realtime/room-key";
 import { AMBIENT_SOUNDS, type AmbientPriority } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -101,7 +103,7 @@ function passesSensitivity(priority: AmbientPriority, s: Sensitivity): boolean {
 export function AmbientSoundDetector({ className }: { className?: string }) {
   const { ambientEvents, pushAmbient, clearAmbient, triggerFlash, vibrate, speak, addCaption } =
     useAura();
-  const { onMessage, roomId, connectionState } = useRealtime();
+  const { onMessage, roomId, roomPrivate, connectionState } = useRealtime();
   const roomAmbient = useRoomAmbient();
   const [coPilotOn, setCoPilotOn] = useState(true);
   const sensitivity = useSyncExternalStore(subscribeSensitivity, readSensitivity, () => "standard" as Sensitivity);
@@ -111,6 +113,7 @@ export function AmbientSoundDetector({ className }: { className?: string }) {
     coPilotOn &&
     connectionState === "open" &&
     roomId !== null &&
+    !roomPrivate &&
     roomAmbient.provider !== "none";
 
   /* Shared policy: every detection → chip + flash + haptics; criticals → caption + speech */
@@ -144,10 +147,40 @@ export function AmbientSoundDetector({ className }: { className?: string }) {
     // active/error states are driven by server ambient-status messages
   }, [useServer, ambientEngineState, startAmbientEngine, stopAmbientEngine]);
 
-  /* Inbound room detections (own echo + peers) go through the same policy */
+  /* Inbound room detections (own echo + peers) go through the same policy.
+     Sealed labels are opened with the room key; locked rooms show a lock chip. */
   useEffect(() => {
     return onMessage((msg) => {
       if (msg.type !== "ambient") return;
+      if (msg.event.crypto) {
+        const key = roomId ? roomKey(roomId) : undefined;
+        if (!key) {
+          handleDetection({
+            label: "🔒 Encrypted sound — unlock the room to identify it",
+            icon: "sparkles",
+            intensity: msg.event.intensity,
+            priority: msg.event.priority,
+          });
+          return;
+        }
+        void openEnvelope(key, msg.event.crypto).then(
+          (label) =>
+            handleDetection({
+              label,
+              icon: iconForLabel(label),
+              intensity: msg.event.intensity,
+              priority: msg.event.priority,
+            }),
+          () =>
+            handleDetection({
+              label: "🔒 Encrypted sound — wrong passphrase?",
+              icon: "sparkles",
+              intensity: msg.event.intensity,
+              priority: msg.event.priority,
+            })
+        );
+        return;
+      }
       handleDetection({
         label: msg.event.label,
         icon: iconForLabel(msg.event.label),
@@ -155,7 +188,7 @@ export function AmbientSoundDetector({ className }: { className?: string }) {
         priority: msg.event.priority,
       });
     });
-  }, [onMessage, handleDetection]);
+  }, [onMessage, roomId, handleDetection]);
 
   /* Local simulation fallback */
   useEffect(() => {

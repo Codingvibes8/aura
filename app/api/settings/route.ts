@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { checkRate, rateLimitedResponse, RATE_LIMITS } from "@/lib/rate-limit";
 
 /**
  * Phases 6.3 + 7 + 3.2 — synced settings: accessibility flags, TTS prefs,
@@ -76,6 +77,8 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const limit = checkRate(req, "settings", RATE_LIMITS.settings);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const ctx = await authed();
   if (!ctx) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const { supabase, user } = ctx;

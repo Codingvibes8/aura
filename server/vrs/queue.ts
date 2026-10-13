@@ -15,6 +15,8 @@ export interface QueueEntry {
   displayName: string;
   language: string;
   priority: VrsPriority;
+  /** Phase 8.4: false skips session logging */
+  logConsent: boolean;
   enqueuedAt: number;
 }
 
@@ -34,6 +36,7 @@ export interface Match {
   displayName: string;
   language: string;
   priority: VrsPriority;
+  logConsent: boolean;
   interpreterId: string;
   interpreterName: string;
   demo: boolean;
@@ -141,6 +144,7 @@ export class InterpreterQueue {
         displayName: entry.displayName,
         language: entry.language,
         priority: entry.priority,
+        logConsent: entry.logConsent,
         interpreterId: interp.peerId,
         interpreterName: interp.displayName,
         demo: false,

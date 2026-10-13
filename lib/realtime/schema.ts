@@ -42,6 +42,8 @@ export interface CaptionPayload {
    * Interim messages sharing an utteranceId replace each other client-side.
    */
   utteranceId?: string;
+  /** E2EE envelope (Phase 8.2) — text is "" when present */
+  crypto?: SealedEnvelope;
 }
 
 /* ------------------------------------------------------------------ */
@@ -55,6 +57,8 @@ export interface AmbientPayload {
   priority: AmbientPriority;
   /** 0..1 loudness, drives the visualizer on receiving clients */
   intensity: number;
+  /** E2EE envelope (Phase 8.2) — label is "" when present */
+  crypto?: SealedEnvelope;
 }
 
 /* ------------------------------------------------------------------ */
@@ -68,6 +72,8 @@ export const JoinMessage = z.object({
   role: z.enum(ROLES),
   /** auth token — verified once Phase 6 lands; accepted-but-ignored now */
   token: z.string().optional(),
+  /** create/join as an end-to-end encrypted room (first joiner sets it) */
+  private: z.boolean().optional(),
 });
 
 export const SignalMessage = z.object({
@@ -78,6 +84,13 @@ export const SignalMessage = z.object({
   data: z.unknown(),
 });
 
+export const SealedEnvelope = z.object({
+  alg: z.literal("A256GCM"),
+  iv: z.string().max(64),
+  ct: z.string().max(8192),
+});
+export type SealedEnvelope = z.infer<typeof SealedEnvelope>;
+
 export const CaptionMessage = z.object({
   type: z.literal("caption"),
   text: z.string().max(4000),
@@ -85,6 +98,8 @@ export const CaptionMessage = z.object({
   speaker: z.string().max(40),
   lang: z.string().max(10).optional(),
   seq: z.number().int().nonnegative(),
+  /** E2EE envelope (Phase 8.2) — text is "" when present */
+  crypto: SealedEnvelope.optional(),
 });
 
 export const AmbientMessage = z.object({
@@ -92,6 +107,8 @@ export const AmbientMessage = z.object({
   label: z.string().max(80),
   priority: z.enum(["info", "warning", "critical"]),
   intensity: z.number().min(0).max(1),
+  /** E2EE envelope (Phase 8.2) — label is "" when present */
+  crypto: SealedEnvelope.optional(),
 });
 
 export const PingMessage = z.object({ type: z.literal("ping") });
@@ -125,6 +142,8 @@ export const InterpreterRequestMessage = z.object({
   language: z.string().min(1).max(16).default("asl"),
   priority: z.enum(["standard", "emergency"]).default("standard"),
   displayName: z.string().min(1).max(40).optional(),
+  /** consent to log anonymized session metadata (Phase 8.4); default true */
+  logConsent: z.boolean().optional(),
 });
 
 /** Cancel my queued interpreter request */
@@ -188,13 +207,13 @@ export interface InterpreterMatchInfo {
 }
 
 export type ServerMessage =
-  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName; ambientProvider: AmbientProviderName }
+  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName; ambientProvider: AmbientProviderName; private: boolean }
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; peerId: string; reason: "left" | "disconnected" }
   | { type: "signal"; fromId: string; data: unknown }
   | { type: "caption"; fromId: string; caption: CaptionPayload }
   | { type: "ambient"; fromId: string; event: AmbientPayload }
-  | { type: "room-state"; roomId: string; peerCount: number }
+  | { type: "room-state"; roomId: string; peerCount: number; private: boolean }
   | { type: "stt-status"; status: SttStatus; provider: SttProviderName; message?: string }
   | { type: "ambient-status"; status: AmbientStatus; provider: AmbientProviderName; message?: string }
   | { type: "interpreter-queue"; requestId: string; position: number; ahead: number; etaSeconds: number; priority: "standard" | "emergency" }
@@ -220,6 +239,7 @@ export const SERVER_ERRORS = {
   AMBIENT_FAILED: "AMBIENT_FAILED",
   VRS_ALREADY_QUEUED: "VRS_ALREADY_QUEUED",
   VRS_NOT_QUEUED: "VRS_NOT_QUEUED",
+  PRIVATE_ROOM: "PRIVATE_ROOM",
 } as const;
 export type ServerErrorCode = (typeof SERVER_ERRORS)[keyof typeof SERVER_ERRORS];
 

@@ -318,17 +318,77 @@ async function main(): Promise<void> {
       ambientIdle
     );
 
-    /* ---- 7. malformed rejection ---- */
-    a.send(JSON.stringify({ type: "nope" }));
+    /* ---- 7. private rooms (Phase 8.2) ---- */
+    const p = await connect();
+    const pBox = collect(p);
+    p.send(JSON.stringify({ type: "join", roomId: "room-priv", displayName: "Pat", role: "dhh", private: true }));
+    const welcomeP = await waitFor(pBox, "welcome");
+    check(
+      "private flag survives in welcome",
+      welcomeP?.type === "welcome" && welcomeP.private === true,
+      welcomeP?.type === "welcome" ? welcomeP.private : undefined
+    );
+    const markP = pBox.length;
+    p.send(JSON.stringify({ type: "stt-start", lang: "en" }));
+    const privErr = await waitForWhere(
+      pBox,
+      (m, i) => m.type === "error" && i >= markP,
+      3000
+    );
+    check(
+      "server STT refused in private rooms",
+      privErr?.type === "error" && privErr.code === "PRIVATE_ROOM",
+      privErr
+    );
+    // sealed captions still relay (server sees ciphertext only)
+    const fakeCt = Buffer.from("ciphertext-bytes").toString("base64");
+    const fakeIv = Buffer.from("123456789012").toString("base64");
+    a.send(
+      JSON.stringify({
+        type: "join",
+        roomId: "room-priv",
+        displayName: "Alice2",
+        role: "hearing",
+      })
+    );
+    await sleep(400);
+    a.send(
+      JSON.stringify({
+        type: "caption",
+        text: "",
+        isFinal: true,
+        speaker: "Speaker B",
+        seq: 0,
+        crypto: { alg: "A256GCM", iv: fakeIv, ct: fakeCt },
+      })
+    );
+    const sealedAtP = await waitForWhere(
+      pBox,
+      (m) => m.type === "caption" && (m as { caption?: { crypto?: unknown } }).caption !== undefined,
+      3000
+    );
+    check(
+      "sealed captions relay through private rooms",
+      sealedAtP?.type === "caption" && !!sealedAtP.caption.crypto,
+      sealedAtP?.type === "caption" ? Object.keys(sealedAtP.caption) : sealedAtP
+    );
+    // return A to room-1 so later leave/peer-left assertions hold
+    a.send(
+      JSON.stringify({ type: "join", roomId: "room-1", displayName: "Alice", role: "dhh" })
+    );
+    await sleep(400);
+    p.close();
+
+    /* ---- 8. malformed rejection ---- */    a.send(JSON.stringify({ type: "nope" }));
     const err = await waitFor(aBox, "error");
     check("malformed message → error response", err?.type === "error" && err.code === "BAD_MESSAGE", err);
 
-    /* ---- 8. ping/pong ---- */
+    /* ---- 9. ping/pong ---- */
     a.send(JSON.stringify({ type: "ping" }));
     const pong = await waitFor(aBox, "pong");
     check("ping → pong", !!pong);
 
-    /* ---- 9. leave → peer-left ---- */
+    /* ---- 10. leave → peer-left ---- */
     b.send(JSON.stringify({ type: "leave" }));
     const leftA = await waitFor(aBox, "peer-left");
     check(

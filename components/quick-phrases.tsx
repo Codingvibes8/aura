@@ -6,6 +6,9 @@ import { MessageSquare, Plus, Sparkles } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
 import { useServerTts } from "@/lib/use-server-tts";
 import { useCloudPhrases } from "@/lib/use-cloud-phrases";
+import { useRealtime } from "@/components/realtime-provider";
+import { sealText } from "@/lib/realtime/crypto";
+import { roomKey } from "@/lib/realtime/room-key";
 import { PHRASE_CATEGORIES, PREDICTIVE_SUGGESTIONS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +24,7 @@ export function QuickPhrases({ className }: { className?: string }) {
   const { addCaption, vibrate, captions } = useAura();
   const tts = useServerTts();
   const { custom, add: addCloudPhrase, remove: removeCloudPhrase, cloud } = useCloudPhrases();
+  const { roomId, roomPrivate, sendCaption } = useRealtime();
   const [activeTab, setActiveTab] = useState(PHRASE_CATEGORIES[0].id);
   const [newPhrase, setNewPhrase] = useState("");
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -31,8 +35,20 @@ export function QuickPhrases({ className }: { className?: string }) {
       vibrate(25);
       // Server ElevenLabs audio when configured, browser voice otherwise
       void tts.speak(phrase);
+      // Share with the room so remote participants read it (sealed if private)
+      if (roomId) {
+        const key = roomPrivate ? roomKey(roomId) : undefined;
+        if (key) {
+          void sealText(key, phrase).then(
+            (crypto) => sendCaption({ text: "", isFinal: true, speaker: "Speaker B", crypto }),
+            () => undefined
+          );
+        } else {
+          sendCaption({ text: phrase, isFinal: true, speaker: "Speaker B" });
+        }
+      }
     },
-    [addCaption, vibrate, tts]
+    [addCaption, vibrate, tts, roomId, roomPrivate, sendCaption]
   );
 
   /* Predictive suggestions inferred from the most recent peer caption */

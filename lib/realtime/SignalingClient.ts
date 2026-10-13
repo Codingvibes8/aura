@@ -119,10 +119,10 @@ export class SignalingClient {
 
   /* ---------------- room ---------------- */
 
-  join(roomId: string, displayName: string, role: Role): void {
+  join(roomId: string, displayName: string, role: Role, makePrivate = false): void {
     this.pendingJoin = { roomId, displayName, role };
     this.joinedRoom = { roomId, displayName, role };
-    this.sendRaw({ type: "join", roomId, displayName, role });
+    this.sendRaw({ type: "join", roomId, displayName, role, private: makePrivate || undefined });
   }
 
   leave(): void {
@@ -177,7 +177,7 @@ export class SignalingClient {
     this.sendRaw({ type: "ambient-stop" });
   }
 
-  vrsRequest(opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }): void {
+  vrsRequest(opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string; logConsent?: boolean }): void {
     this.sendRaw({ type: "interpreter-request", ...opts });
   }
 

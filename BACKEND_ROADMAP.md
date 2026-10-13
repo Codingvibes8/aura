@@ -55,13 +55,13 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **7.1 Settings API** — `GET/PUT /api/settings` (a11y flags + TTS prefs + ambient sensitivity, last-write-wins). **Status: shipped.**
 - [x] **7.2 Server-driven theme** — `CloudSync` pulls on sign-in (applies aura settings, TTS prefs, sensitivity) and pushes debounced snapshots; signed out it is fully inert. **Status: shipped.**
 
-## Phase 8 — Production Hardening
+## Phase 8 — Production Hardening  ✅ COMPLETE
 
-- [ ] **8.1 Rate limiting & abuse protection** — WS message rate limits, API throttling.
-- [ ] **8.2 End-to-end encryption option** — Insertable Streams / E2EE for sensitive conversations (medical, legal).
-- [ ] **8.3 Observability** — Structured logging, OpenTelemetry traces for the caption pipeline, uptime monitoring.
-- [ ] **8.4 Compliance** — GDPR/CCPA data handling, HIPAA-aligned storage for medical-phrase usage, consent flows.
-- [ ] **8.5 Deployment** — Containerized signaling + STT services; HTTPS/WSS everywhere; TURN behind firewall rules.
+- [x] **8.1 Rate limiting & abuse protection** — Fixed-window per-IP throttling on all API routes (`lib/rate-limit.ts`, 429 + `Retry-After`; TTS synthesis capped to protect ElevenLabs spend); signaling server keeps its token bucket plus a 20-connection per-IP cap and 64 KB frame limits. Redis-backed limits noted for multi-instance deploys. **Status: shipped + 429-tested.**
+- [x] **8.2 End-to-end encryption option** — Opt-in private rooms: AES-GCM-256 captions/ambient labels with PBKDF2 room keys derived from a passphrase the server never sees; server STT/ambient refused in private rooms (clients fall back to on-device); locked tabs show placeholders with zero leakage. **Status: shipped + browser-verified; 11 crypto unit checks.**
+- [x] **8.3 Observability** — Structured logs (`LOG_FORMAT=json` for ingestion), W3C-shaped trace ids per room, `GET /api/health` (capability flags, no secrets) and signaling `/healthz` (uptime, rooms, peers, queue depth) for uptime monitors; Docker healthcheck wired. Full OTel SDK deliberately deferred (trace correlation in place). **Status: shipped.**
+- [x] **8.4 Compliance** — `GET /api/account` export + `DELETE /api/account` erasure (GDPR/CCPA); VRS logging consent toggle gating the session log; privacy posture documented (no content logging, RLS, E2EE option). HIPAA attestation explicitly out of scope — noted as aligned practices only. **Status: shipped.**
+- [x] **8.5 Deployment** — Multi-stage `Dockerfile` (Next standalone + signaling) + `docker-compose.yml` (env passthrough, `/data` volume, healthcheck); TURN configurable via `NEXT_PUBLIC_TURN_*` (`lib/realtime/ice.ts`); same-origin reverse proxy recommended for `wss://`. **Status: shipped (compose not run in CI here).**
 
 ## Phase 9 — Mobile / PWA (Stretch)
 

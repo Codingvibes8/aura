@@ -15,7 +15,9 @@
  */
 
 import { WebSocketServer, WebSocket } from "ws";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadServerEnv } from "./env.ts";
+import { log, newTraceId } from "./log.ts";
 import { DeepgramSttProvider } from "./stt/deepgram-provider.ts";
 import { MockSttProvider } from "./stt/mock-provider.ts";
 import type { SttProvider, SttSession } from "./stt/provider.ts";
@@ -53,6 +55,8 @@ const MAX_ROOM_SIZE = 8;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 /** binary mic frames bypass the text rate-limiter but are still size-capped */
 const MAX_BINARY_BYTES = 256 * 1024;
+/** abuse protection (Phase 8.1): max concurrent sockets per source IP */
+const MAX_CONN_PER_IP = Number(process.env.SIGNALING_MAX_CONN_PER_IP ?? 20);
 
 /* ------------------------------------------------------------------ */
 /* STT provider selection (Phase 2)                                    */
@@ -117,6 +121,8 @@ interface VrsCall {
   language: string;
   priority: "standard" | "emergency";
   demo: boolean;
+  /** Phase 8.4: false skips the session log */
+  logConsent: boolean;
   startedAt: number;
 }
 
@@ -197,9 +203,13 @@ function startVrsCall(call: Omit<VrsCall, "startedAt">): void {
       });
     }
   }
-  console.log(
-    `[aura] VRS match ${call.requestId}: ${call.requesterName} ↔ ${call.interpreterName} (${call.language}${call.demo ? ", demo" : ""})`
-  );
+  log.info("vrs matched", {
+    request: call.requestId,
+    requester: call.requesterName,
+    interpreter: call.interpreterName,
+    language: call.language,
+    demo: call.demo,
+  });
 }
 
 /** Match queued requests against available interpreters until none match. */
@@ -216,6 +226,7 @@ function tryMatchVrs(): void {
       interpreterName: match.interpreterName,
       language: match.language,
       priority: match.priority,
+      logConsent: match.logConsent,
       demo: false,
     });
   }
@@ -246,23 +257,27 @@ function endVrsCall(
   }
 
   const now = Date.now();
-  vrsLog.recordEnd({
-    sessionId: requestId,
-    requestId,
-    roomId: call.roomId,
-    requesterId: call.requesterId,
-    requesterName: call.requesterName,
-    interpreterId: call.interpreterId,
-    interpreterName: call.interpreterName,
-    language: call.language,
-    priority: call.priority,
-    demo: call.demo,
-    startedAt: call.startedAt,
-    endedAt: now,
-    durationS: Math.max(0, Math.round((now - call.startedAt) / 1000)),
-    endReason: reason,
-  });
-  console.log(`[aura] VRS call ${requestId} ended (${reason})`);
+  if (call.logConsent) {
+    vrsLog.recordEnd({
+      sessionId: requestId,
+      requestId,
+      roomId: call.roomId,
+      requesterId: call.requesterId,
+      requesterName: call.requesterName,
+      interpreterId: call.interpreterId,
+      interpreterName: call.interpreterName,
+      language: call.language,
+      priority: call.priority,
+      demo: call.demo,
+      startedAt: call.startedAt,
+      endedAt: now,
+      durationS: Math.max(0, Math.round((now - call.startedAt) / 1000)),
+      endReason: reason,
+    });
+    log.info("vrs call ended", { request: requestId, reason });
+  } else {
+    log.info("vrs call ended (unlogged by request)", { request: requestId, reason });
+  }
 
   if (rematch) tryMatchVrs();
 }
@@ -285,6 +300,7 @@ function scheduleDemoFallback(requestId: string): void {
       interpreterName: "Demo Interpreter",
       language: entry.language,
       priority: entry.priority,
+      logConsent: entry.logConsent,
       demo: true,
     });
     broadcastQueuePositions();
@@ -298,7 +314,7 @@ function randomRoomCode(): string {
 
 function handleVrsRequest(
   peer: Peer,
-  msg: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }
+  msg: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string; logConsent?: boolean }
 ): void {
   const alreadyQueued = vrsQueue.list().some((e) => e.peerId === peer.id);
   if (alreadyQueued) {
@@ -328,7 +344,7 @@ function handleVrsRequest(
     roomId = `SOS-${randomRoomCode()}`;
   }
   if (!peer.info.roomId) {
-    handleJoin(peer, roomId, msg.displayName ?? peer.info.displayName, peer.info.role);
+    handleJoin(peer, roomId, msg.displayName ?? peer.info.displayName, peer.info.role, false);
     (peer.socket as ExtendedSocket).joined = true;
   } else {
     roomId = peer.info.roomId;
@@ -340,11 +356,16 @@ function handleVrsRequest(
     displayName: msg.displayName ?? peer.info.displayName,
     language: msg.language,
     priority: msg.priority,
+    logConsent: msg.logConsent ?? true,
   });
   peer.vrsRequestId = entry.requestId;
-  console.log(
-    `[aura] VRS request ${entry.requestId} from ${entry.displayName} (${entry.language}, ${entry.priority})`
-  );
+  log.info("vrs request", {
+    request: entry.requestId,
+    from: entry.displayName,
+    language: entry.language,
+    priority: entry.priority,
+    trace: rooms.get(roomId)?.traceId,
+  });
   sendQueuePosition(entry);
   tryMatchVrs();
   if (vrsQueue.positionOf(entry.requestId) >= 0) {
@@ -382,9 +403,11 @@ function handleInterpreterStatus(peer: Peer, available: boolean, languages: stri
     available,
     busyWith: existing?.busyWith ?? null,
   });
-  console.log(
-    `[aura] Interpreter ${peer.info.displayName} ${available ? "available" : "unavailable"} [${languages.join(", ") || "—"}]`
-  );
+  log.info("interpreter presence", {
+    who: peer.info.displayName,
+    available,
+    languages: languages.join(",") || "—",
+  });
   tryMatchVrs();
 }
 
@@ -399,6 +422,7 @@ function handleInterpreterDecline(peer: Peer, requestId: string): void {
     displayName: call.requesterName,
     language: call.language,
     priority: call.priority,
+    logConsent: call.logConsent,
   });
   const requester = findPeerById(call.requesterId);
   if (requester) requester.vrsRequestId = re.requestId;
@@ -482,17 +506,30 @@ interface Room {
   id: string;
   peers: Map<string, Peer>;
   createdAt: number;
+  /** end-to-end encrypted: server relays ciphertext only (Phase 8.2) */
+  private: boolean;
+  /** W3C-shaped trace id correlating this room's log lines (Phase 8.3) */
+  traceId: string;
   /** diarization map: `${peerId}:${engineSpeakerIdx}` → "Speaker A"… */
   speakerLabels: Map<string, string>;
   speakerCount: number;
 }
 
 const rooms = new Map<string, Room>();
+const connPerIp = new Map<string, number>();
 
-function getOrCreateRoom(roomId: string): Room {
+function getOrCreateRoom(roomId: string, makePrivate: boolean): Room {
   let room = rooms.get(roomId);
   if (!room) {
-    room = { id: roomId, peers: new Map(), createdAt: Date.now(), speakerLabels: new Map(), speakerCount: 0 };
+    room = {
+      id: roomId,
+      peers: new Map(),
+      createdAt: Date.now(),
+      private: makePrivate,
+      traceId: newTraceId(),
+      speakerLabels: new Map(),
+      speakerCount: 0,
+    };
     rooms.set(roomId, room);
   }
   return room;
@@ -539,7 +576,9 @@ function leaveRoom(peer: Peer, reason: "left" | "disconnected", cleanupVrs = tru
       type: "room-state",
       roomId: room.id,
       peerCount: room.peers.size,
+      private: room.private,
     });
+    log.info("peer left room", { room: room.id, trace: room.traceId, peers: room.peers.size, reason });
   }
   if (room.peers.size === 0) {
     rooms.delete(room.id);
@@ -561,6 +600,18 @@ function stopAmbient(peer: Peer, notify: boolean): void {
 
 function startAmbient(peer: Peer): void {
   stopAmbient(peer, false);
+  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
+  if (!room) return;
+  // Same E2EE rationale as STT: classification needs plaintext audio.
+  if (room.private) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.PRIVATE_ROOM,
+      message: "Server ambient detection is disabled in end-to-end encrypted rooms.",
+    });
+    sendTo(peer, { type: "ambient-status", status: "unavailable", provider: ambientProviderName });
+    return;
+  }
   if (!ambient) {
     sendTo(peer, {
       type: "error",
@@ -571,9 +622,6 @@ function startAmbient(peer: Peer): void {
     return;
   }
 
-  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
-  if (!room) return;
-
   peer.ambientSession = {
     chunks: [],
     bufferedBytes: 0,
@@ -582,7 +630,7 @@ function startAmbient(peer: Peer): void {
     mapper: new DetectionMapper({ threshold: AMBIENT_THRESHOLD, cooldownMs: AMBIENT_COOLDOWN_S * 1000 }),
   };
   sendTo(peer, { type: "ambient-status", status: "active", provider: ambientProviderName });
-  console.log(`[aura] Ambient detection started for ${peer.info.displayName} (${ambient.name})`);
+  log.info("ambient session started", { who: peer.info.displayName, provider: ambient.name });
 }
 
 async function pumpAmbient(peer: Peer): Promise<void> {
@@ -607,7 +655,7 @@ async function pumpAmbient(peer: Peer): Promise<void> {
       // Ambient events describe the shared environment — the detecting
       // client renders them too, so broadcast inclusively.
       broadcast(room, { type: "ambient", fromId: peer.id, event });
-      console.log(`[aura] Ambient [${d.priority}] ${d.label} (score ${d.score.toFixed(2)}) in room ${room.id}`);
+      log.info("ambient detection", { room: room.id, trace: room.traceId, priority: d.priority, label: d.label, score: Number(d.score.toFixed(2)) });
     }
   } catch (e) {
     if (!session.stopped) {
@@ -663,6 +711,19 @@ function stopStt(peer: Peer, notify: boolean): void {
 
 function startStt(peer: Peer, lang: string | undefined, keywords: string[] | undefined): void {
   stopStt(peer, false);
+  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
+  if (!room) return;
+  // Private rooms relay ciphertext only — server transcription would see
+  // plaintext, so it is refused (clients fall back to on-device STT).
+  if (room.private) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.PRIVATE_ROOM,
+      message: "Server speech recognition is disabled in end-to-end encrypted rooms.",
+    });
+    sendTo(peer, { type: "stt-status", status: "unavailable", provider: sttProviderName });
+    return;
+  }
   if (!stt) {
     sendTo(peer, {
       type: "error",
@@ -672,9 +733,6 @@ function startStt(peer: Peer, lang: string | undefined, keywords: string[] | und
     sendTo(peer, { type: "stt-status", status: "unavailable", provider: "none" });
     return;
   }
-
-  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
-  if (!room) return;
 
   const session = stt.openSession(
     {
@@ -719,7 +777,7 @@ function startStt(peer: Peer, lang: string | undefined, keywords: string[] | und
 
   peer.stt = session;
   sendTo(peer, { type: "stt-status", status: "active", provider: sttProviderName });
-  console.log(`[aura] STT started for ${peer.info.displayName} (${stt.name}, lang=${lang || STT_LANGUAGE})`);
+  log.info("stt session started", { who: peer.info.displayName, provider: stt.name, lang: lang || STT_LANGUAGE });
 }
 
 /** Move a peer between rooms (interpreters hopping to calls). A call only
@@ -743,7 +801,7 @@ function switchRoom(peer: Peer, roomId: string, displayName: string, role: Role)
   if (peer.info.roomId) {
     leaveRoom(peer, "left", false);
   }
-  handleJoin(peer, roomId, displayName, role);
+  handleJoin(peer, roomId, displayName, role, false);
 }
 
 /* ------------------------------------------------------------------ */
@@ -861,8 +919,8 @@ function handleMessage(peer: Peer, msg: ClientMessage): void {
   }
 }
 
-function handleJoin(peer: Peer, roomId: string, displayName: string, role: Role): void {
-  const room = getOrCreateRoom(roomId);
+function handleJoin(peer: Peer, roomId: string, displayName: string, role: Role, makePrivate: boolean): void {
+  const room = getOrCreateRoom(roomId, makePrivate);
 
   if (room.peers.size >= MAX_ROOM_SIZE) {
     sendTo(peer, {
@@ -889,11 +947,11 @@ function handleJoin(peer: Peer, roomId: string, displayName: string, role: Role)
   room.peers.set(peer.id, peer);
 
   const peers = [...room.peers.values()].map((p) => p.info);
-  sendTo(peer, { type: "welcome", clientId: peer.id, roomId, peers, sttProvider: sttProviderName, ambientProvider: ambientProviderName });
+  sendTo(peer, { type: "welcome", clientId: peer.id, roomId, peers, sttProvider: sttProviderName, ambientProvider: ambientProviderName, private: room.private });
   broadcast(room, { type: "peer-joined", peer: info }, peer.id);
-  broadcast(room, { type: "room-state", roomId, peerCount: room.peers.size }, peer.id);
+  broadcast(room, { type: "room-state", roomId, peerCount: room.peers.size, private: room.private }, peer.id);
 
-  console.log(`[aura] ${displayName} (${role}) joined room ${roomId} — ${room.peers.size} peer(s)`);
+  log.info("peer joined room", { room: roomId, trace: room.traceId, who: displayName, role, peers: room.peers.size, private: room.private });
 }
 
 /* ------------------------------------------------------------------ */
@@ -902,6 +960,7 @@ function handleJoin(peer: Peer, roomId: string, displayName: string, role: Role)
 
 interface ExtendedSocket extends WebSocket {
   isAlive: boolean;
+  lastSeen: number;
   auraPeer?: Peer;
   joined: boolean;
 }
@@ -910,14 +969,61 @@ function nextClientId(): string {
   return crypto.randomUUID();
 }
 
+const bootAt = Date.now();
+
+const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+  // Plain HTTP is only for health checks — everything else is WebSocket.
+  if (req.url === "/healthz") {
+    let peers = 0;
+    let vrsQueued = 0;
+    for (const room of rooms.values()) peers += room.peers.size;
+    vrsQueued = vrsQueue.list().length;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        uptimeS: Math.floor((Date.now() - bootAt) / 1000),
+        rooms: rooms.size,
+        peers,
+        vrsQueued,
+        vrsCalls: vrsCalls.size,
+        providers: { stt: sttProviderName, ambient: ambientProviderName },
+      })
+    );
+    return;
+  }
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "WebSocket endpoint — speak WS." }));
+});
+
 const wss = new WebSocketServer({
-  host: HOST,
-  port: PORT,
+  server: httpServer,
   maxPayload: MAX_MESSAGE_BYTES,
 });
 
-wss.on("connection", (socket: ExtendedSocket) => {
+function socketIp(req: IncomingMessage): string {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string" && fwd) return fwd.split(",")[0].trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+wss.on("connection", (socket: ExtendedSocket, req: IncomingMessage) => {
+  const ip = socketIp(req);
+  const current = (connPerIp.get(ip) ?? 0) + 1;
+  if (current > MAX_CONN_PER_IP) {
+    log.warn("connection refused: per-IP cap", { ip });
+    socket.close(1013, "too many connections");
+    return;
+  }
+  connPerIp.set(ip, current);
+  const releaseIp = () => {
+    const left = (connPerIp.get(ip) ?? 1) - 1;
+    if (left <= 0) connPerIp.delete(ip);
+    else connPerIp.set(ip, left);
+  };
+
   socket.isAlive = true;
+  socket.lastSeen = Date.now();
   socket.joined = false;
 
   const clientId = nextClientId();
@@ -958,6 +1064,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
 
   socket.on("pong", () => {
     socket.isAlive = true;
+    socket.lastSeen = Date.now();
     peer.isAlive = true;
   });
 
@@ -1009,13 +1116,14 @@ wss.on("connection", (socket: ExtendedSocket) => {
     }
 
     peer.isAlive = true;
+    socket.lastSeen = Date.now();
 
     if (msg.type === "join") {
       if (socket.joined && peer.info.roomId) {
         switchRoom(peer, msg.roomId, msg.displayName, msg.role);
       } else {
         socket.joined = true;
-        handleJoin(peer, msg.roomId, msg.displayName, msg.role);
+        handleJoin(peer, msg.roomId, msg.displayName, msg.role, msg.private === true);
       }
       return;
     }
@@ -1047,6 +1155,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
   });
 
   socket.on("close", () => {
+    releaseIp();
     stopStt(peer, false);
     stopAmbient(peer, false);
     if (socket.auraPeer?.info.roomId) {
@@ -1055,6 +1164,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
   });
 
   socket.on("error", () => {
+    releaseIp();
     stopStt(peer, false);
     stopAmbient(peer, false);
     if (socket.auraPeer?.info.roomId) {
@@ -1068,11 +1178,17 @@ wss.on("connection", (socket: ExtendedSocket) => {
 /* ------------------------------------------------------------------ */
 
 const heartbeat = setInterval(() => {
+  const now = Date.now();
   for (const socket of wss.clients) {
     const ext = socket as ExtendedSocket;
     if (!ext.isAlive) {
-      if (ext.auraPeer?.info.roomId) leaveRoom(ext.auraPeer, "disconnected");
-      return socket.terminate();
+      // one missed pong is tolerated; silence past the timeout kills it
+      if (now - ext.lastSeen > HEARTBEAT_TIMEOUT_MS) {
+        if (ext.auraPeer?.info.roomId) leaveRoom(ext.auraPeer, "disconnected");
+        log.debug("heartbeat timeout, terminating socket");
+        socket.terminate();
+        continue;
+      }
     }
     ext.isAlive = false;
     socket.ping();
@@ -1085,20 +1201,16 @@ const heartbeat = setInterval(() => {
 
 wss.on("close", () => clearInterval(heartbeat));
 
-console.log(`[aura] Signaling server listening on ws://${HOST}:${PORT}`);
-console.log(`[aura] Heartbeat ${HEARTBEAT_INTERVAL_MS / 1000}s, timeout ${HEARTBEAT_TIMEOUT_MS / 1000}s, max room ${MAX_ROOM_SIZE}`);
-console.log(
-  `[aura] STT provider: ${sttProviderName}${sttProviderName === "deepgram" ? ` (model=${STT_MODEL}, lang=${STT_LANGUAGE})` : ""}`
-);
-console.log(
-  `[aura] Ambient provider: ${ambientProviderName}${ambientProviderName === "hf" ? ` (model=${AMBIENT_MODEL}, window=${AMBIENT_WINDOW_S}s)` : ""}`
-);
-console.log(
-  `[aura] VRS relay: demo=${VRS_DEMO_MODE ? `on (${VRS_DEMO_DELAY_S}s)` : "off"}, log=${resolveVrsLogFile() ?? "disabled"}`
-);
+httpServer.listen(PORT, HOST, () => {
+  log.info(`signaling server listening`, { url: `ws://${HOST}:${PORT}`, health: `http://${HOST}:${PORT}/healthz` });
+  log.info("tuning", { heartbeatS: HEARTBEAT_INTERVAL_MS / 1000, timeoutS: HEARTBEAT_TIMEOUT_MS / 1000, maxRoom: MAX_ROOM_SIZE, maxConnPerIp: MAX_CONN_PER_IP });
+  log.info(`stt provider`, { provider: sttProviderName, ...(sttProviderName === "deepgram" ? { model: STT_MODEL, lang: STT_LANGUAGE } : {}) });
+  log.info(`ambient provider`, { provider: ambientProviderName, ...(ambientProviderName === "hf" ? { model: AMBIENT_MODEL, windowS: AMBIENT_WINDOW_S } : {}) });
+  log.info(`vrs relay`, { demo: VRS_DEMO_MODE ? `on (${VRS_DEMO_DELAY_S}s)` : "off", log: resolveVrsLogFile() ?? "disabled" });
+});
 
 process.on("SIGINT", () => {
-  console.log("\n[aura] Shutting down…");
+  log.info("shutting down");
   clearInterval(heartbeat);
   wss.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1000).unref();
@@ -1107,4 +1219,5 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   clearInterval(heartbeat);
   wss.close(() => process.exit(0));
+  httpServer.close(() => process.exit(0));
 });

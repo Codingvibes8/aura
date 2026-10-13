@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRate, rateLimitedResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   getTtsConfig,
   getElevenLabsTts,
@@ -20,7 +21,9 @@ import {
   TTS_MAX_CHARS,
 } from "@/server/tts/elevenlabs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const limit = checkRate(req, "tts-status", RATE_LIMITS.ttsStatus);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const cfg = getTtsConfig();
   return NextResponse.json({
     configured: cfg.configured,
@@ -31,6 +34,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const limit = checkRate(req, "tts-synthesize", RATE_LIMITS.ttsSynthesize);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const cfg = getTtsConfig();
   if (!cfg.configured) {
     return NextResponse.json(

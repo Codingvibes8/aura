@@ -124,6 +124,19 @@ async function main(): Promise<void> {
   const loginPage = await fetch(`${BASE}/login`);
   check("GET /login serves", loginPage.status === 200, loginPage.status);
 
+  /* ---- rate limiting (Phase 8.1): hammer TTS synthesis until 429 ---- */
+  let saw429 = false;
+  for (let n = 0; n < 40; n++) {
+    const r = await post("/api/tts", { text: "rate limit probe" });
+    if (r.status === 429) {
+      saw429 = true;
+      const body = r.body as { retryAfterSeconds?: number };
+      check("429 carries retry hint", typeof body.retryAfterSeconds === "number", body);
+      break;
+    }
+  }
+  check("TTS synthesis throttled with 429", saw429);
+
   console.log(
     failures === 0
       ? `\n[test] ALL CHECKS PASSED${skipped ? " (skipped)" : ""}`

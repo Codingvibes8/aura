@@ -63,6 +63,7 @@ export function SosInterpreter({ compact = false, role = "dhh" }: { compact?: bo
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("asl");
   const [emergency, setEmergency] = useState(false);
+  const [logConsent, setLogConsent] = useState(true);
 
   const namePlaceholder = role === "hearing" ? "Hearing user" : role === "interpreter" ? "Interpreter" : "DHH user";
 
@@ -118,6 +119,7 @@ export function SosInterpreter({ compact = false, role = "dhh" }: { compact?: bo
       language,
       priority: emergency ? "emergency" : "standard",
       displayName,
+      logConsent,
     });
     setState("queued");
   };
@@ -229,6 +231,17 @@ export function SosInterpreter({ compact = false, role = "dhh" }: { compact?: bo
                 <p className="text-xs text-muted-foreground">Emergency requests jump the queue.</p>
               </div>
               <Switch id="sos-emergency" checked={emergency} onCheckedChange={setEmergency} aria-label="Emergency request" />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+              <div>
+                <label htmlFor="sos-log" className="text-sm font-medium">
+                  Log anonymized session metadata
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Who, when, and how long — never audio or video.
+                </p>
+              </div>
+              <Switch id="sos-log" checked={logConsent} onCheckedChange={setLogConsent} aria-label="Consent to session metadata logging" />
             </div>
           </div>
         )}

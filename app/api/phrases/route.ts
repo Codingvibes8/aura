@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { checkRate, rateLimitedResponse, RATE_LIMITS } from "@/lib/rate-limit";
 
 /**
  * Phase 6.4 — cloud custom phrases (replaces localStorage per-account).
@@ -31,7 +32,9 @@ function unauthenticated(status: 401 | 503) {
   );
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const limit = checkRate(req, "phrases-read", RATE_LIMITS.phrasesRead);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const ctx = await authed();
   if (!ctx) {
     const supabase = await createClient();
@@ -51,6 +54,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const limit = checkRate(req, "phrases-write", RATE_LIMITS.phrasesWrite);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const ctx = await authed();
   if (!ctx) return unauthenticated(401);
   const { supabase, user } = ctx;
@@ -86,6 +91,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const limit = checkRate(req, "phrases-write", RATE_LIMITS.phrasesWrite);
+  if (!limit.allowed) return rateLimitedResponse(limit);
   const ctx = await authed();
   if (!ctx) return unauthenticated(401);
   const { supabase, user } = ctx;

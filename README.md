@@ -84,6 +84,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 
 Setup: create a project at supabase.com, run `supabase/migrations/0001_aura.sql` in the SQL editor, add the env vars, restart. Optional: enable Google/Apple providers in the Supabase dashboard. Full guide in `supabase/README.md`. The `/interpreter` console requires login once auth is configured.
 
+## Private rooms & production (Phase 8)
+
+- **Private rooms**: toggle end-to-end encryption when joining — captions seal on-device (AES-GCM-256, passphrase never leaves), the server relays ciphertext only. Unlock with the same passphrase + room code on each device.
+- **Abuse protection**: API routes throttle per IP (429 + retry hints); the signaling server caps connections per IP.
+- **Monitoring**: `GET /api/health` and signaling `/healthz` (uptime, rooms, peers, queue depth); `LOG_FORMAT=json` for log ingestion.
+- **Your data**: `GET /api/account` exports everything, `DELETE /api/account` erases it.
+- **Deploy**: `docker compose up` (Next standalone + signaling, `/data` volume for the VRS log). Set `VRS_DEMO_MODE=false` in production and configure TURN via `NEXT_PUBLIC_TURN_*` for restrictive networks.
+
 ## The three modes
 
 | Mode | Route | Who it's for |

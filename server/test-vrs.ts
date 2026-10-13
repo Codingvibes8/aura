@@ -46,8 +46,8 @@ function unitChecks(): void {
   check("language overlap any-wildcard", languagesOverlap(["any"], "bsl"));
   check("language mismatch rejected", !languagesOverlap(["asl"], "bsl"));
 
-  const std = q.enqueue({ peerId: "a", roomId: "r", displayName: "A", language: "asl", priority: "standard" });
-  const emg = q.enqueue({ peerId: "b", roomId: "r", displayName: "B", language: "asl", priority: "emergency" });
+  const std = q.enqueue({ peerId: "a", roomId: "r", displayName: "A", language: "asl", priority: "standard", logConsent: true });
+  const emg = q.enqueue({ peerId: "b", roomId: "r", displayName: "B", language: "asl", priority: "emergency", logConsent: true });
   const order = q.list();
   check("emergency sorts ahead of standard", order[0].requestId === emg.requestId, order.map((e) => e.priority));
 
@@ -65,7 +65,7 @@ function unitChecks(): void {
   check("matched entry dequeued", q.positionOf(emg.requestId) === -1);
   check("interpreter marked busy", q.getInterpreter("i2")?.busyWith === emg.requestId);
 
-  const re = q.requeueFront({ peerId: "b", roomId: "r", displayName: "B", language: "asl", priority: "emergency" });
+  const re = q.requeueFront({ peerId: "b", roomId: "r", displayName: "B", language: "asl", priority: "emergency", logConsent: true });
   check("declined request requeues at front", q.positionOf(re.requestId) === 0);
 
   q.releaseInterpreter("i2");
@@ -340,6 +340,49 @@ async function switchCheck(): Promise<void> {
   }
 }
 
+async function consentCheck(): Promise<void> {
+  console.log("[test] VRS log-consent check (Phase 8.4)…");
+  const server = await bootServer({ VRS_DEMO_MODE: "false" });
+  try {
+    await waitUp();
+    const i = await connect();
+    const iBox = collect(i);
+    i.send(JSON.stringify({ type: "join", roomId: "ROOM-C", displayName: "Con", role: "interpreter" }));
+    await waitForWhere(iBox, (m) => m.type === "welcome");
+    i.send(JSON.stringify({ type: "interpreter-status", available: true, languages: ["any"] }));
+    await sleep(200);
+
+    const a = await connect();
+    const aBox = collect(a);
+    a.send(JSON.stringify({ type: "join", roomId: "ROOM-C", displayName: "NoLog", role: "dhh" }));
+    await waitForWhere(aBox, (m) => m.type === "welcome");
+    const mark = aBox.length;
+    a.send(
+      JSON.stringify({ type: "interpreter-request", roomId: "ROOM-C", language: "asl", logConsent: false })
+    );
+    const match = await waitForWhere(aBox, (m, idx) => m.type === "interpreter-match" && idx >= mark);
+    check("opt-out request still matches", !!match);
+    const reqId = match?.type === "interpreter-match" ? match.match.requestId : "";
+    a.send(JSON.stringify({ type: "interpreter-end" }));
+    await waitForWhere(aBox, (m, idx) => m.type === "interpreter-ended" && idx >= mark);
+    await sleep(300);
+    a.close();
+    i.close();
+    await sleep(300);
+
+    let logged = false;
+    try {
+      const lines = readFileSync(LOG_FILE, "utf8").split("\n").filter((l) => l.trim());
+      logged = lines.some((l) => l.includes(reqId));
+    } catch {
+      /* missing log */
+    }
+    check("opted-out call leaves no session record", !!reqId && !logged, reqId);
+  } finally {
+    server.kill();
+  }
+}
+
 async function main(): Promise<void> {
   try {
     rmSync(LOG_FILE, { force: true });
@@ -350,6 +393,7 @@ async function main(): Promise<void> {
   await protocolChecks();
   await demoCheck();
   await switchCheck();
+  await consentCheck();
   console.log(failures === 0 ? "\n[test] ALL CHECKS PASSED" : `\n[test] ${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 }

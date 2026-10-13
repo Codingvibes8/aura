@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtime } from "@/components/realtime-provider";
+import { getRtcConfig } from "./ice";
 
 /**
  * Minimal 1:1 WebRTC video call (Phase 5.3 VRS).
@@ -18,9 +19,7 @@ import { useRealtime } from "@/components/realtime-provider";
 
 export type CallState = "idle" | "calling" | "in-call" | "error";
 
-const STUN_SERVERS: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+const RTC_CONFIG: RTCConfiguration = getRtcConfig();
 
 export function usePeerCall() {
   const { sendSignal, onMessage, clientId } = useRealtime();
@@ -51,7 +50,7 @@ export function usePeerCall() {
   const ensurePeerConnection = useCallback(
     (targetId: string, stream: MediaStream) => {
       if (pcRef.current) return pcRef.current;
-      const pc = new RTCPeerConnection(STUN_SERVERS);
+      const pc = new RTCPeerConnection(RTC_CONFIG);
       pcRef.current = pc;
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);

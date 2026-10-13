@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+      - "${SIGNALING_PORT:-3100}:3100"
+    environment:
+      PORT: 3000
+      SIGNALING_PORT: 3100
+      SIGNALING_HOST: 0.0.0.0
+      # STT / ambient / TTS providers (see .env.example)
+      STT_PROVIDER: ${STT_PROVIDER:-auto}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      AMBIENT_PROVIDER: ${AMBIENT_PROVIDER:-auto}
+      HF_TOKEN: ${HF_TOKEN:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Relay + session log
+      VRS_DEMO_MODE: ${VRS_DEMO_MODE:-false}
+      VRS_LOG_FILE: /data/vrs-sessions.jsonl
+      # Browser-facing URLs (same-origin reverse proxy recommended)
+      NEXT_PUBLIC_SIGNALING_URL: ${NEXT_PUBLIC_SIGNALING_URL:-}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      # TURN for restrictive NATs (Phase 8.5)
+      NEXT_PUBLIC_TURN_URLS: ${NEXT_PUBLIC_TURN_URLS:-}
+      NEXT_PUBLIC_TURN_USERNAME: ${NEXT_PUBLIC_TURN_USERNAME:-}
+      NEXT_PUBLIC_TURN_CREDENTIAL: ${NEXT_PUBLIC_TURN_CREDENTIAL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    volumes:
+      - aura-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/healthz').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  aura-data:

@@ -24,7 +24,8 @@ interface RealtimeContextValue {
   clientId: string | null;
   peers: PeerInfo[];
   roomId: string | null;
-  join: (roomId: string, displayName: string, role: Role) => void;
+  roomPrivate: boolean;
+  join: (roomId: string, displayName: string, role: Role, makePrivate?: boolean) => void;
   leave: () => void;
   sendSignal: (targetId: string, data: unknown) => void;
   sendCaption: (caption: Omit<CaptionPayload, "seq">) => void;
@@ -34,7 +35,7 @@ interface RealtimeContextValue {
   stopStt: () => void;
   startAmbient: () => void;
   stopAmbient: () => void;
-  vrsRequest: (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }) => void;
+  vrsRequest: (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string; logConsent?: boolean }) => void;
   vrsCancel: () => void;
   vrsEnd: () => void;
   vrsSetAvailable: (available: boolean, languages: string[]) => void;
@@ -50,6 +51,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [clientId, setClientId] = useState<string | null>(null);
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [roomPrivate, setRoomPrivate] = useState(false);
 
   const clientRef = useRef<SignalingClient | null>(null);
   const handlersRef = useRef(new Set<(msg: ServerMessage) => void>());
@@ -64,6 +66,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         setClientId(msg.clientId);
         setPeers(msg.peers);
         setRoomId(msg.roomId);
+        setRoomPrivate(msg.private);
         break;
       case "peer-joined":
         setPeers((prev) => [...prev.filter((p) => p.id !== msg.peer.id), msg.peer]);
@@ -73,6 +76,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         break;
       case "room-state":
         setRoomId(msg.roomId);
+        setRoomPrivate(msg.private);
         break;
       case "error":
         // surfaced to listeners; connection state untouched
@@ -98,8 +102,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     };
   }, [dispatch]);
 
-  const join = useCallback((roomId: string, displayName: string, role: Role) => {
-    clientRef.current?.join(roomId, displayName, role);
+  const join = useCallback((roomId: string, displayName: string, role: Role, makePrivate = false) => {
+    clientRef.current?.join(roomId, displayName, role, makePrivate);
   }, []);
 
   const leave = useCallback(() => {
@@ -107,6 +111,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setClientId(null);
     setPeers([]);
     setRoomId(null);
+    setRoomPrivate(false);
   }, []);
 
   const sendSignal = useCallback((targetId: string, data: unknown) => {
@@ -142,7 +147,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const vrsRequest = useCallback(
-    (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }) => {
+    (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string; logConsent?: boolean }) => {
       clientRef.current?.vrsRequest(opts);
     },
     []
@@ -177,6 +182,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       clientId,
       peers,
       roomId,
+      roomPrivate,
       join,
       leave,
       sendSignal,
@@ -194,7 +200,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       vrsDecline,
       onMessage,
     }),
-    [connectionState, clientId, peers, roomId, join, leave, sendSignal, sendCaption, sendAmbient, sendAudio, startStt, stopStt, startAmbient, stopAmbient, vrsRequest, vrsCancel, vrsEnd, vrsSetAvailable, vrsDecline, onMessage]
+    [connectionState, clientId, peers, roomId, roomPrivate, join, leave, sendSignal, sendCaption, sendAmbient, sendAudio, startStt, stopStt, startAmbient, stopAmbient, vrsRequest, vrsCancel, vrsEnd, vrsSetAvailable, vrsDecline, onMessage]
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

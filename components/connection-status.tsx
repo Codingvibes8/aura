@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
-import { Radio, Users, Wifi, WifiOff } from "lucide-react";
+import { Radio, Users, Wifi, WifiOff, Lock, LockOpen } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
+import { lockRoom, unlockRoom, isRoomUnlocked } from "@/lib/realtime/room-key";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/realtime/schema";
 
@@ -34,7 +36,7 @@ function randomRoomCode(): string {
  * through the signaling server — the foundation for WebRTC + captions.
  */
 export function ConnectionStatus({ role: defaultRole }: { role: Role }) {
-  const { connectionState, peers, roomId, join, leave, clientId } = useRealtime();
+  const { connectionState, peers, roomId, roomPrivate, join, leave, clientId } = useRealtime();
   const [open, setOpen] = useState(false);
   // Generated in the initializer — dialog content is not SSR'd, so the value
   // never appears in server HTML and cannot cause a hydration mismatch.
@@ -44,6 +46,11 @@ export function ConnectionStatus({ role: defaultRole }: { role: Role }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>(defaultRole);
   const [prevDefaultRole, setPrevDefaultRole] = useState<Role>(defaultRole);
+  const [makePrivate, setMakePrivate] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [unlockInput, setUnlockInput] = useState("");
+  const [unlockedTick, setUnlockedTick] = useState(0);
 
   // Reset the suggested role when the route (and therefore defaultRole) changes.
   // State-during-render pattern from react.dev — avoids an effect cascade.
@@ -64,11 +71,30 @@ export function ConnectionStatus({ role: defaultRole }: { role: Role }) {
     e.preventDefault();
     const displayName = name.trim() || namePlaceholder;
     if (!roomCodeClean || !displayName) return;
+    if (makePrivate && passphrase.length < 4) {
+      setKeyError("Private rooms need a passphrase of at least 4 characters.");
+      return;
+    }
+    setKeyError(null);
+    // Derive + cache the room key BEFORE joining so the first caption
+    // can already be decrypted. The passphrase never leaves this device.
+    if (makePrivate) {
+      void unlockRoom(roomCodeClean, passphrase).then(
+        () => {
+          join(roomCodeClean, displayName, role, true);
+          setPassphrase("");
+          setOpen(false);
+        },
+        () => setKeyError("Could not initialize encryption on this device.")
+      );
+      return;
+    }
     join(roomCodeClean, displayName, role);
     setOpen(false);
   };
 
   const handleLeave = () => {
+    if (roomId) lockRoom(roomId);
     leave();
     setOpen(false);
   };
@@ -160,6 +186,59 @@ export function ConnectionStatus({ role: defaultRole }: { role: Role }) {
                 <option value="interpreter">Interpreter</option>
               </select>
             </div>
+            <div className="rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  {makePrivate ? (
+                    <Lock className="mt-0.5 size-4 text-primary" aria-hidden="true" />
+                  ) : (
+                    <LockOpen className="mt-0.5 size-4 text-muted-foreground" aria-hidden="true" />
+                  )}
+                  <div>
+                    <label htmlFor="room-private" className="text-sm font-medium">
+                      Private room (end-to-end encrypted)
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Captions are sealed on this device — the server only relays ciphertext.
+                      Server STT and ambient detection stay off.
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  id="room-private"
+                  checked={makePrivate}
+                  onCheckedChange={(v) => {
+                    setMakePrivate(v);
+                    setKeyError(null);
+                  }}
+                  aria-label="Create or require an end-to-end encrypted room"
+                />
+              </div>
+              {makePrivate && (
+                <div className="mt-3 space-y-1.5">
+                  <label htmlFor="room-passphrase" className="text-sm font-medium">
+                    Room passphrase
+                  </label>
+                  <input
+                    id="room-passphrase"
+                    type="password"
+                    autoComplete="off"
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.target.value)}
+                    placeholder="Share this with the other side out-of-band"
+                    className="h-11 w-full rounded-lg border border-border bg-background px-3 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Same passphrase + same room code unlocks every device. Never sent anywhere.
+                  </p>
+                </div>
+              )}
+              {keyError && (
+                <p role="alert" className="mt-2 text-xs text-destructive">
+                  {keyError}
+                </p>
+              )}
+            </div>
             <Button type="submit" className="w-full" disabled={connectionState !== "open"}>
               {connectionState !== "open"
                 ? `${style.label}…`
@@ -170,12 +249,57 @@ export function ConnectionStatus({ role: defaultRole }: { role: Role }) {
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-secondary/50 p-3">
               <p className="text-xs text-muted-foreground">Room</p>
-              <p className="font-mono text-lg font-bold tracking-widest">{roomId}</p>
+              <p className="flex items-center gap-2 font-mono text-lg font-bold tracking-widest">
+                {roomId}
+                {roomPrivate && <Lock className="size-4 text-primary" aria-label="End-to-end encrypted room" />}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 You are <span className="font-medium text-foreground">{name.trim() || namePlaceholder}</span> · {role} ·{" "}
                 <span className="font-mono">{clientId?.slice(0, 8)}</span>
               </p>
             </div>
+
+            {roomPrivate && roomId && unlockedTick >= 0 && !isRoomUnlocked(roomId) && (
+              <form
+                className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (unlockInput.length < 4 || !roomId) return;
+                  void unlockRoom(roomId, unlockInput).then(
+                    () => {
+                      setUnlockInput("");
+                      setKeyError(null);
+                      setUnlockedTick((t) => t + 1);
+                    },
+                    () => setKeyError("Could not initialize encryption on this device.")
+                  );
+                }}
+              >
+                <label htmlFor="unlock-passphrase" className="flex items-center gap-1.5 text-sm font-medium">
+                  <Lock className="size-4 text-primary" aria-hidden="true" />
+                  This room is encrypted — enter the passphrase to read captions
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="unlock-passphrase"
+                    type="password"
+                    autoComplete="off"
+                    value={unlockInput}
+                    onChange={(e) => setUnlockInput(e.target.value)}
+                    placeholder="Room passphrase"
+                    className="h-10 flex-1 rounded-lg border border-border bg-background px-3 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <Button type="submit" size="sm" disabled={unlockInput.length < 4}>
+                    Unlock
+                  </Button>
+                </div>
+                {keyError && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {keyError}
+                  </p>
+                )}
+              </form>
+            )}
 
             <div>
               <p className="mb-1.5 text-sm font-medium">

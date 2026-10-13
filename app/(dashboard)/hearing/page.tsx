@@ -5,6 +5,9 @@ import { useState } from "react";
 import { Mic, Send, Square, Users, Volume2 } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
 import { useServerTts } from "@/lib/use-server-tts";
+import { useRealtime } from "@/components/realtime-provider";
+import { sealText } from "@/lib/realtime/crypto";
+import { roomKey } from "@/lib/realtime/room-key";
 import { LiveCaptions } from "@/components/live-captions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
  */
 export default function HearingPage() {
   const { addCaption, vibrate } = useAura();
+  const { roomId, roomPrivate, sendCaption } = useRealtime();
   const tts = useServerTts();
   const [message, setMessage] = useState("");
 
@@ -26,6 +30,18 @@ export default function HearingPage() {
     addCaption({ speaker: "self", text });
     vibrate(20);
     void tts.speak(text);
+    // Share with the room so remote participants read it (sealed if private)
+    if (roomId) {
+      const key = roomPrivate ? roomKey(roomId) : undefined;
+      if (key) {
+        void sealText(key, text).then(
+          (crypto) => sendCaption({ text: "", isFinal: true, speaker: "Speaker B", crypto }),
+          () => undefined
+        );
+      } else {
+        sendCaption({ text, isFinal: true, speaker: "Speaker B" });
+      }
+    }
     setMessage("");
   };
 
