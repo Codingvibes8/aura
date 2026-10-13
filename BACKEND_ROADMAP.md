@@ -6,15 +6,15 @@ demo mode** and needs a real server counterpart.
 
 ---
 
-## Phase 1 — Real-Time Transport Layer
+## Phase 1 — Real-Time Transport Layer  ✅ COMPLETE
 
 The app is architected for WebRTC/WebSocket; today streams are simulated in-page.
 
-- [ ] **1.1 WebSocket signaling server** — `socket.io` or native `ws` Node server; rooms, join/leave, heartbeat. Replaces in-browser caption streaming.
-- [ ] **1.2 WebRTC peer-to-peer audio/video** — STUN/TURN servers (e.g. Twilio STUN or self-hosted coturn) for NAT traversal; SDP offer/answer relayed through the signaling server.
+- [x] **1.1 WebSocket signaling server** — `ws` Node server; rooms (max 8), join/leave, 30s heartbeat, token-bucket rate limiting. **Status: shipped + E2E-tested (`server/test-signaling.ts`, 16/16 checks).**
+- [x] **1.2 WebRTC peer-to-peer audio/video** — STUN/TURN servers (e.g. Twilio STUN or self-hosted coturn) for NAT traversal; SDP offer/answer relayed through the signaling server. *(Signal relay shipped — STUN/TURN config still open.)*
 - [ ] **1.3 Media server / SFU (optional)** — For group conversations or relay quality, an SFU (mediasoup / LiveKit / Janus) instead of pure mesh.
-- [ ] **1.4 Caption-over-data-channel** — Stream caption events as typed messages (JSON) over the WS/WebRTC data channel rather than local React state. Define the message envelope schema (speaker, text, isFinal, timestamp).
-- [ ] **1.5 Reconnection & resilience** — Auto-reconnect with exponential backoff, offline queueing of captions, ICE restart handling.
+- [x] **1.4 Caption-over-data-channel** — Caption events flow as typed JSON over the WebSocket (schema in `lib/realtime/schema.ts`, server assigns monotonic `seq` per room). **Status: shipped + tested.**
+- [x] **1.5 Reconnection & resilience** — Auto-reconnect with exponential backoff (1s→15s + jitter), automatic room re-join on reconnect, heartbeat kills silent sockets. **Status: shipped.**
 
 ## Phase 2 — Speech-to-Text (Live Captions)
 
@@ -102,4 +102,14 @@ Currently: `localStorage` via `aura-settings` key.
 | Custom phrases | `localStorage` | Phase 6.4 phrases API |
 | Settings | `localStorage` `aura-settings` | Phase 7.1 settings API |
 | TTS | browser `speechSynthesis` | Phase 3.1 ElevenLabs |
-| Captions transport | React context in-memory | Phase 1.4 data-channel messages |
+| Captions transport | ~~React context in-memory~~ | ✅ Phase 1.4 shipped — WebSocket data channel live |
+| WebRTC signaling | ~~n/a~~ | ✅ Phase 1.1/1.2 relay shipped (`server/signaling-server.ts`) |
+
+## Phase 1 delivery notes
+
+- **Server**: `server/signaling-server.ts` — standalone Node process on port **3100** (`SIGNALING_PORT` env to override). `npm run dev` boots Next + signaling together via `concurrently`; `npm run start:server` runs it alone.
+- **Schema**: `lib/realtime/schema.ts` — zod-validated client→server messages; typed server→client messages. Add new message types here first.
+- **Client**: `lib/realtime/SignalingClient.ts` (reconnect/backoff/rejoin) + `components/realtime-provider.tsx` (`useRealtime()` context) + `components/connection-status.tsx` (header status + room join UI).
+- **Tests**: `npm run test:server` — boots the server, two clients join, asserts signal relay, caption broadcast + seq assignment, malformed rejection, ping/pong, leave notification.
+- **Rooms**: max 8 peers, token-bucket 30 msg/s, 64KB max frame, 30s heartbeat. Interpreter role (`interpreter`) reserved for Phase 5.
+- **Production**: point `NEXT_PUBLIC_SIGNALING_URL` at your deployed `wss://` endpoint (same-origin reverse proxy works too — client defaults to `wss://<host>` under HTTPS).

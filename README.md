@@ -8,10 +8,15 @@ Every feature runs **100% client-side** using Web APIs (Web Speech, Web Audio, V
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+npm run dev        # Next.js + signaling server (concurrently)
 ```
 
-Other scripts: `npm run build`, `npm run start`, `npm run lint`.
+- Web app → http://localhost:3000 (falls back to 3001/3002 if occupied)
+- Signaling server → ws://localhost:3100 (`SIGNALING_PORT` to override)
+
+Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run test:server` (signaling E2E).
+
+**Live rooms**: open the **Live session** button in the header (wifi icon), pick a room code, and join. Open the page in a second tab/window with the same code — both sides sync instantly. See `BACKEND_ROADMAP.md` for the phased plan to swap demo simulations for real services.
 
 ## The three modes
 
