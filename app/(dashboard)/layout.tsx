@@ -1,11 +1,13 @@
 import { AuraProvider } from "@/components/aura-provider";
 import { RealtimeProvider } from "@/components/realtime-provider";
+import { CloudSync } from "@/components/cloud-sync";
 import { ModeHeader } from "@/components/mode-header";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <RealtimeProvider>
       <AuraProvider>
+        <CloudSync />
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Ear, Headset, Users, Video } from "lucide-react";
 import { ConnectionStatus } from "@/components/connection-status";
+import { AuthButton } from "@/components/auth-button";
 import { SettingsPanel } from "@/components/settings-panel";
 import { SosInterpreter } from "@/components/sos-interpreter";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,7 @@ export function ModeHeader() {
           <ConnectionStatus role={role} />
           <SosInterpreter compact role={role} />
           <SettingsPanel />
+          <AuthButton />
         </div>
       </div>
     </header>

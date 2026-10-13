@@ -32,7 +32,7 @@ function loadPrefs(): Partial<TtsPrefs> {
 let prefsCache: TtsPrefs | null = null;
 const prefsListeners = new Set<() => void>();
 
-function readPrefs(): TtsPrefs {
+export function readPrefs(): TtsPrefs {
   if (!prefsCache) {
     const stored = loadPrefs();
     prefsCache = {
@@ -46,7 +46,7 @@ function readPrefs(): TtsPrefs {
   return prefsCache;
 }
 
-function writePrefs(patch: Partial<TtsPrefs>): void {
+export function writePrefs(patch: Partial<TtsPrefs>): void {
   const next = { ...readPrefs(), ...patch };
   next.rate = Math.min(2, Math.max(0.5, next.rate || 1));
   prefsCache = next;
@@ -66,6 +66,8 @@ function subscribePrefs(cb: () => void): () => void {
     prefsListeners.delete(cb);
   };
 }
+
+export { subscribePrefs };
 
 function useTtsPrefs(): { prefs: TtsPrefs; setVoiceId: (id: string) => void; setRate: (r: number) => void } {
   const prefs = useSyncExternalStore(subscribePrefs, readPrefs, () => DEFAULT_PREFS);

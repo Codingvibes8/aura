@@ -40,7 +40,7 @@ export interface FlashSignal {
   key: number;
 }
 
-interface Settings {
+export interface Settings {
   fontScale: number; // 0.875 – 1.5, applied to root font-size
   highContrast: boolean;
   dark: boolean;
@@ -58,6 +58,8 @@ interface AuraContextValue extends Settings {
   toggleDark: () => void;
   toggleHaptics: () => void;
   toggleReducedMotion: () => void;
+  /** merge a partial settings object (cloud sync pull) */
+  applySettings: (patch: Partial<Settings>) => void;
   addCaption: (c: Omit<Caption, "id" | "timestamp">) => void;
   clearCaptions: () => void;
   pushAmbient: (e: Omit<AmbientEvent, "id" | "timestamp">) => void;
@@ -165,6 +167,18 @@ export function AuraProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const applySettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((s) => {
+      const next = { ...s, ...patch };
+      next.fontScale = Math.min(1.5, Math.max(0.875, next.fontScale || 1));
+      next.highContrast = !!next.highContrast;
+      next.dark = !!next.dark;
+      next.haptics = next.haptics !== false;
+      next.reducedMotion = !!next.reducedMotion;
+      return next;
+    });
+  }, []);
+
   /* ---------------- Captions ---------------- */
   const addCaption = useCallback((c: Omit<Caption, "id" | "timestamp">) => {
     setCaptions((prev) => {
@@ -239,6 +253,7 @@ export function AuraProvider({ children }: { children: React.ReactNode }) {
       toggleDark,
       toggleHaptics,
       toggleReducedMotion,
+      applySettings,
       addCaption,
       clearCaptions,
       pushAmbient,
@@ -259,6 +274,7 @@ export function AuraProvider({ children }: { children: React.ReactNode }) {
       toggleDark,
       toggleHaptics,
       toggleReducedMotion,
+      applySettings,
       addCaption,
       clearCaptions,
       pushAmbient,

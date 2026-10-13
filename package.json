@@ -12,6 +12,7 @@
     "test:tts": "node --no-warnings server/test-tts.ts",
     "test:ambient": "node --no-warnings server/test-ambient.ts",
     "test:vrs": "node --no-warnings server/test-vrs.ts",
+    "test:supabase": "node --no-warnings server/test-supabase.ts",
     "lint": "eslint"
   },
   "dependencies": {
@@ -24,6 +25,8 @@
     "@radix-ui/react-tabs": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.4.1",
     "@radix-ui/react-visually-hidden": "^1.2.13",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.56.0",

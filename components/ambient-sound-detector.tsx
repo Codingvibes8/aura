@@ -45,13 +45,13 @@ function iconForLabel(label: string): string {
   return "sparkles";
 }
 
-type Sensitivity = "low" | "standard" | "high";
+export type Sensitivity = "low" | "standard" | "high";
 const SENSITIVITY_KEY = "aura-ambient-sensitivity";
 
 let sensitivityCache: Sensitivity | null = null;
 const sensitivityListeners = new Set<() => void>();
 
-function readSensitivity(): Sensitivity {
+export function readSensitivity(): Sensitivity {
   if (!sensitivityCache) {
     try {
       const raw = window.localStorage.getItem(SENSITIVITY_KEY);
@@ -63,7 +63,7 @@ function readSensitivity(): Sensitivity {
   return sensitivityCache;
 }
 
-function writeSensitivity(s: Sensitivity): void {
+export function writeSensitivity(s: Sensitivity): void {
   sensitivityCache = s;
   try {
     window.localStorage.setItem(SENSITIVITY_KEY, s);
@@ -79,6 +79,8 @@ function subscribeSensitivity(cb: () => void): () => void {
     sensitivityListeners.delete(cb);
   };
 }
+
+export { subscribeSensitivity };
 
 function passesSensitivity(priority: AmbientPriority, s: Sensitivity): boolean {
   if (s === "high") return true;

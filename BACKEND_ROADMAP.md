@@ -26,7 +26,7 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 ## Phase 3 — Text-to-Speech  ✅ COMPLETE
 
 - [x] **3.1 ElevenLabs / server-side TTS** — `POST /api/tts` returns MP3 audio (`eleven_turbo_v2_5`, stability/clarity controls via env); `GET /api/tts/voices` serves the voice picker catalog. In-memory LRU caches repeat phrases (quick-phrase macros) to ~0 latency and zero extra quota. API key never leaves the server. **Status: shipped + unit-tested (`server/test-tts.ts`, 15/15).**
-- [x] **3.2 Rate & voice persistence** — Voice + rate persist per-device in `localStorage` today (no identity exists yet); the hook is documented to switch to server-side profile sync when Phase 6 auth lands. **Status: client-persisted, server sync deferred to Phase 6.**
+- [x] **3.2 Rate & voice persistence** — Voice + rate persist per-device and sync to the profile on sign-in (`PUT /api/settings`); server-side profile sync live. **Status: shipped with Phase 6/7.**
 - [x] **3.3 TTS playback sync** — `useServerTts()` plays server audio via HTMLAudio (rate → `playbackRate`), interrupts in-flight audio on new input, and falls back to browser `speechSynthesis` when unconfigured or on fetch failure. **Status: shipped + browser-verified.**
 
 ## Phase 4 — AI Co-Pilot (Ambient Sound Identification)  ✅ COMPLETE
@@ -43,21 +43,17 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **5.3 VRS video call** — 1:1 WebRTC video (requester calls, interpreter auto-answers) over the existing signal relay with public STUN. Same-machine/LAN verified; symmetric NATs need TURN (Phase 8). **Status: shipped; media verified where devices exist.**
 - [x] **5.4 Session records** — Append-only JSONL metadata log (parties, language, duration, end reason) — never audio/video content. **Status: shipped (`data/vrs-sessions.jsonl`).**
 
-## Phase 6 — Auth, Users & Persistence
+## Phase 6 — Auth, Users & Persistence  ✅ COMPLETE (Supabase)
 
-Currently: no auth; settings/custom phrases in `localStorage`.
+- [x] **6.1 Auth system** — Supabase Auth: email/password + Google/Apple OAuth, PKCE callback route, cookie sessions via `@supabase/ssr`. `proxy.ts` refreshes sessions and gates `/interpreter` behind login (only when configured — demo stays open). **Status: shipped.**
+- [x] **6.2 Database & ORM** — Supabase Postgres, `supabase/migrations/0001_aura.sql` (`profiles`, `user_settings`, `custom_phrases`, owner-only RLS + `updated_at` triggers). supabase-js client; no separate ORM needed. **Status: shipped, see `supabase/README.md`.**
+- [x] **6.3 User profiles** — `GET/PATCH /api/profile` (display name, role, language); header shows identity + sign-out. **Status: shipped.**
+- [x] **6.4 Custom phrases API** — `GET/POST/DELETE /api/phrases` (200-phrase cap, ordered); client merges server + local with localStorage as offline cache. **Status: shipped + browser-verified.**
 
-- [ ] **6.1 Auth system** — Email/password + OAuth (Google/Apple); JWT or session cookies; Next.js middleware for route protection.
-- [ ] **6.2 Database & ORM** — Postgres (Supabase / Neon / RDS) + Prisma or Drizzle schema: users, rooms, sessions, phrase lists, TTS preferences, interpreter profiles.
-- [ ] **6.3 User profiles** — DHH vs. hearing role, language preferences, accessibility defaults (font scale, high contrast, haptics) synced across devices.
-- [ ] **6.4 Custom phrases API** — CRUD endpoint replacing `localStorage` custom-phrase storage.
+## Phase 7 — Settings & Accessibility Sync  ✅ COMPLETE
 
-## Phase 7 — Settings & Accessibility Sync
-
-Currently: `localStorage` via `aura-settings` key.
-
-- [ ] **7.1 Settings API** — Per-user accessibility settings (fontScale, highContrast, dark, haptics, reducedMotion) persisted server-side and applied at login.
-- [ ] **7.2 Server-driven theme** — Theme class / CSS variable injection based on profile, not only client state.
+- [x] **7.1 Settings API** — `GET/PUT /api/settings` (a11y flags + TTS prefs + ambient sensitivity, last-write-wins). **Status: shipped.**
+- [x] **7.2 Server-driven theme** — `CloudSync` pulls on sign-in (applies aura settings, TTS prefs, sensitivity) and pushes debounced snapshots; signed out it is fully inert. **Status: shipped.**
 
 ## Phase 8 — Production Hardening
 
@@ -91,8 +87,8 @@ Currently: `localStorage` via `aura-settings` key.
 | Demo chat | `DEMO_CONVERSATION` in `mock-data.ts` | Kept as no-mic demo; live path is Phase 2.1 server STT |
 | Ambient sounds | ~~`setInterval` + `AMBIENT_SOUNDS`~~ | ✅ Phase 4 shipped — AudioSet classifier with local-sim fallback |
 | Interpreter queue | ~~`INTERPRETER_QUEUE_STEPS` timers~~ | ✅ Phase 5 shipped — real queue, matching, video, session log |
-| Custom phrases | `localStorage` | Phase 6.4 phrases API |
-| Settings | `localStorage` `aura-settings` | Phase 7.1 settings API |
+| Custom phrases | ~~`localStorage`~~ | ✅ Phase 6.4 shipped — cloud CRUD with local cache |
+| Settings | ~~`localStorage` `aura-settings`~~ | ✅ Phase 7 shipped — synced on sign-in, local otherwise |
 | TTS | ~~browser `speechSynthesis`~~ | ✅ Phase 3 shipped — ElevenLabs server audio with browser fallback |
 | Captions transport | ~~React context in-memory~~ | ✅ Phase 1.4 shipped — WebSocket data channel live |
 | WebRTC signaling | ~~n/a~~ | ✅ Phase 1.1/1.2 relay shipped (`server/signaling-server.ts`) |

@@ -5,24 +5,13 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { MessageSquare, Plus, Sparkles } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
 import { useServerTts } from "@/lib/use-server-tts";
+import { useCloudPhrases } from "@/lib/use-cloud-phrases";
 import { PHRASE_CATEGORIES, PREDICTIVE_SUGGESTIONS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconByName } from "@/components/icon-by-name";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const CUSTOM_KEY = "aura-custom-phrases";
-
-function loadCustomPhrases(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * One-tap quick phrases with full keyboard navigation:
@@ -31,8 +20,8 @@ function loadCustomPhrases(): string[] {
 export function QuickPhrases({ className }: { className?: string }) {
   const { addCaption, vibrate, captions } = useAura();
   const tts = useServerTts();
+  const { custom, add: addCloudPhrase, remove: removeCloudPhrase, cloud } = useCloudPhrases();
   const [activeTab, setActiveTab] = useState(PHRASE_CATEGORIES[0].id);
-  const [custom, setCustom] = useState<string[]>(loadCustomPhrases);
   const [newPhrase, setNewPhrase] = useState("");
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,14 +100,12 @@ export function QuickPhrases({ className }: { className?: string }) {
     event.preventDefault();
     const text = newPhrase.trim();
     if (!text) return;
-    const next = [...custom, text];
-    setCustom(next);
     setNewPhrase("");
-    try {
-      window.localStorage.setItem(CUSTOM_KEY, JSON.stringify(next));
-    } catch {
-      /* storage unavailable */
-    }
+    void addCloudPhrase(text);
+  };
+
+  const removeCustomPhrase = (phrase: string) => {
+    void removeCloudPhrase(phrase);
   };
 
   return (
@@ -130,6 +117,7 @@ export function QuickPhrases({ className }: { className?: string }) {
         <MessageSquare className="size-5 text-primary" aria-hidden="true" />
         <h2 className="text-sm font-semibold">Quick Phrases</h2>
         <Badge variant="secondary">One tap speaks</Badge>
+        {cloud && <Badge variant="outline" title="Custom phrases sync to your account">Cloud sync</Badge>}
       </div>
 
       {suggestions.length > 0 && (
@@ -178,21 +166,32 @@ export function QuickPhrases({ className }: { className?: string }) {
           className="mt-3 grid flex-1 grid-cols-1 gap-2 pb-3 sm:grid-cols-2"
         >
           {activeCategory.phrases.map((phrase, i) => (
-            <button
-              key={phrase}
-              type="button"
-              data-phrase-btn
-              tabIndex={i === 0 ? 0 : -1}
-              onClick={() => speakPhrase(phrase)}
-              aria-label={`Say: ${phrase}`}
-              className={cn(
-                "flex min-h-12 cursor-pointer items-center rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-medium transition-colors",
-                "hover:border-primary hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            <span key={phrase} className="flex items-stretch gap-1">
+              <button
+                type="button"
+                data-phrase-btn
+                tabIndex={i === 0 ? 0 : -1}
+                onClick={() => speakPhrase(phrase)}
+                aria-label={`Say: ${phrase}`}
+                className={cn(
+                  "flex min-h-12 flex-1 cursor-pointer items-center rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-medium transition-colors",
+                  "hover:border-primary hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                )}
+              >
+                <Sparkles className="mr-2 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {phrase}
+              </button>
+              {activeCategory.id === "custom" && (
+                <button
+                  type="button"
+                  onClick={() => removeCustomPhrase(phrase)}
+                  aria-label={`Delete custom phrase: ${phrase}`}
+                  className="cursor-pointer rounded-lg border border-border px-2 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
               )}
-            >
-              <Sparkles className="mr-2 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-              {phrase}
-            </button>
+            </span>
           ))}
           {activeCategory.id === "custom" && (
             <form onSubmit={addCustomPhrase} className="flex gap-2 sm:col-span-2">

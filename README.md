@@ -73,6 +73,17 @@ A sensitivity picker (Low / Standard / High) filters which priorities reach you.
 - No human online? A demo interpreter auto-matches after ~8 s so the flow works out of the box (`VRS_DEMO_MODE=false` for production).
 - Every call appends a metadata record to `data/vrs-sessions.jsonl` (who, language, duration, end reason — never audio/video).
 
+## Accounts & cloud sync (Phase 6 + 7, Supabase)
+
+Sign in to sync settings, TTS voice/rate, ambient sensitivity, and custom phrases across devices. Without Supabase env vars the app is fully local — auth UI hides itself.
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xyzcompany.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+
+Setup: create a project at supabase.com, run `supabase/migrations/0001_aura.sql` in the SQL editor, add the env vars, restart. Optional: enable Google/Apple providers in the Supabase dashboard. Full guide in `supabase/README.md`. The `/interpreter` console requires login once auth is configured.
+
 ## The three modes
 
 | Mode | Route | Who it's for |
