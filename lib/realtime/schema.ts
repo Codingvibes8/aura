@@ -109,6 +109,12 @@ export const SttStartMessage = z.object({
 /** End server-side streaming STT for this peer */
 export const SttStopMessage = z.object({ type: z.literal("stt-stop") });
 
+/** Begin server-side ambient sound classification for this peer (Phase 4) */
+export const AmbientStartMessage = z.object({ type: z.literal("ambient-start") });
+
+/** End server-side ambient sound classification for this peer */
+export const AmbientStopMessage = z.object({ type: z.literal("ambient-stop") });
+
 export const ClientMessage = z.discriminatedUnion("type", [
   JoinMessage,
   SignalMessage,
@@ -116,6 +122,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   AmbientMessage,
   SttStartMessage,
   SttStopMessage,
+  AmbientStartMessage,
+  AmbientStopMessage,
   PingMessage,
   LeaveMessage,
 ]);
@@ -129,8 +137,11 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export type SttProviderName = "deepgram" | "mock" | "none";
 export type SttStatus = "active" | "idle" | "error" | "unavailable";
 
+export type AmbientProviderName = "hf" | "mock" | "none";
+export type AmbientStatus = "active" | "idle" | "error" | "unavailable";
+
 export type ServerMessage =
-  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName }
+  | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName; ambientProvider: AmbientProviderName }
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; peerId: string; reason: "left" | "disconnected" }
   | { type: "signal"; fromId: string; data: unknown }
@@ -138,6 +149,7 @@ export type ServerMessage =
   | { type: "ambient"; fromId: string; event: AmbientPayload }
   | { type: "room-state"; roomId: string; peerCount: number }
   | { type: "stt-status"; status: SttStatus; provider: SttProviderName; message?: string }
+  | { type: "ambient-status"; status: AmbientStatus; provider: AmbientProviderName; message?: string }
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
@@ -153,6 +165,8 @@ export const SERVER_ERRORS = {
   RATE_LIMITED: "RATE_LIMITED",
   STT_UNAVAILABLE: "STT_UNAVAILABLE",
   STT_FAILED: "STT_FAILED",
+  AMBIENT_UNAVAILABLE: "AMBIENT_UNAVAILABLE",
+  AMBIENT_FAILED: "AMBIENT_FAILED",
 } as const;
 export type ServerErrorCode = (typeof SERVER_ERRORS)[keyof typeof SERVER_ERRORS];
 

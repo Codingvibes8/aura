@@ -29,14 +29,12 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **3.2 Rate & voice persistence** — Voice + rate persist per-device in `localStorage` today (no identity exists yet); the hook is documented to switch to server-side profile sync when Phase 6 auth lands. **Status: client-persisted, server sync deferred to Phase 6.**
 - [x] **3.3 TTS playback sync** — `useServerTts()` plays server audio via HTMLAudio (rate → `playbackRate`), interrupts in-flight audio on new input, and falls back to browser `speechSynthesis` when unconfigured or on fetch failure. **Status: shipped + browser-verified.**
 
-## Phase 4 — AI Co-Pilot (Ambient Sound Identification)
+## Phase 4 — AI Co-Pilot (Ambient Sound Identification)  ✅ COMPLETE
 
-Currently: `setInterval` simulation firing random sounds from `AMBIENT_SOUNDS`.
-
-- [ ] **4.1 Audio capture service** — Dedicated mic stream on a trusted client (or always-on mobile companion) piped to the classifier.
-- [ ] **4.2 Real classifier** — AudioSet-based model (YAMNet / BEAST) or hosted API (AudioSet ONNX) returning `[label, confidence, priority]`.
-- [ ] **4.3 Event fan-out** — Detection events pushed to all room participants over the real-time channel; persisted for the session log.
-- [ ] **4.4 Priority & policy engine** — Configurable rules: which sounds trigger flash vs. vibration vs. spoken alert; per-user sensitivity.
+- [x] **4.1 Audio capture service** — Dedicated mic pipe (`useRoomAmbient`) reusing the PCM16 worklet; binary frames multiplexed on the signaling socket with a `0x02` stream header (STT uses `0x01`). Server accumulates 4 s windows per session. **Status: shipped.**
+- [x] **4.2 Real classifier** — AudioSet AST via HuggingFace Inference (`router.huggingface.co`, WAV-wrapped windows); AudioSet labels mapped to Aura's curated defs with confidence threshold; speech/music ignored. Mock classifier keeps zero-key demo/CI green. **Status: shipped + unit-tested (`server/test-ambient.ts`, 18/18).**
+- [x] **4.3 Event fan-out** — Detections broadcast inclusively to the room as `ambient` messages (existing Phase 1 channel); detector renders own echo + peers through one shared policy. **Status: shipped + E2E-tested.**
+- [x] **4.4 Priority & policy engine** — Per-sound 20 s cooldowns server-side; client sensitivity (Low = critical only / Standard / High = everything) persisted per-device; criticals captioned + spoken, everything flashed + vibrated. **Status: shipped.**
 
 ## Phase 5 — Interpreter Relay Service (VRS)
 
@@ -93,7 +91,7 @@ Currently: `localStorage` via `aura-settings` key.
 | Feature | Current simulation | Replaced by |
 |---|---|---|
 | Demo chat | `DEMO_CONVERSATION` in `mock-data.ts` | Kept as no-mic demo; live path is Phase 2.1 server STT |
-| Ambient sounds | `setInterval` + `AMBIENT_SOUNDS` | Phase 4.2 real classifier |
+| Ambient sounds | ~~`setInterval` + `AMBIENT_SOUNDS`~~ | ✅ Phase 4 shipped — AudioSet classifier with local-sim fallback |
 | Interpreter queue | `INTERPRETER_QUEUE_STEPS` timers | Phase 5.2 real queue |
 | Custom phrases | `localStorage` | Phase 6.4 phrases API |
 | Settings | `localStorage` `aura-settings` | Phase 7.1 settings API |

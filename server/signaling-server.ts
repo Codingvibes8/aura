@@ -19,6 +19,10 @@ import { loadServerEnv } from "./env.ts";
 import { DeepgramSttProvider } from "./stt/deepgram-provider.ts";
 import { MockSttProvider } from "./stt/mock-provider.ts";
 import type { SttProvider, SttSession } from "./stt/provider.ts";
+import { HfAstClassifier } from "./ambient/hf-classifier.ts";
+import { MockClassifier } from "./ambient/mock-classifier.ts";
+import { DetectionMapper } from "./ambient/map.ts";
+import type { AudioClassifier } from "./ambient/classifier.ts";
 import {
   parseClientMessage,
   toServerMessage,
@@ -30,6 +34,7 @@ import {
   type CaptionPayload,
   type AmbientPayload,
   type SttProviderName,
+  type AmbientProviderName,
 } from "../lib/realtime/schema.ts";
 
 loadServerEnv();
@@ -70,6 +75,27 @@ else stt = deepgram.available ? deepgram : mock; // "auto"
 const sttProviderName: SttProviderName = stt ? stt.name : "none";
 
 /* ------------------------------------------------------------------ */
+/* Ambient classifier selection (Phase 4)                              */
+/* ------------------------------------------------------------------ */
+
+const AMBIENT_MODEL = process.env.AMBIENT_MODEL ?? "MIT/ast-finetuned-audioset-10-10-0.4593";
+const AMBIENT_WINDOW_S = Number(process.env.AMBIENT_WINDOW_S ?? 4);
+const AMBIENT_THRESHOLD = Number(process.env.AMBIENT_THRESHOLD ?? 0.3);
+const AMBIENT_COOLDOWN_S = Number(process.env.AMBIENT_COOLDOWN_S ?? 20);
+const AMBIENT_WINDOW_BYTES = Math.max(1, Math.floor(AMBIENT_WINDOW_S)) * 16000 * 2;
+
+const hfClassifier = new HfAstClassifier(process.env.HF_TOKEN, AMBIENT_MODEL);
+const mockClassifier = new MockClassifier();
+
+const AMBIENT_WANT = (process.env.AMBIENT_PROVIDER ?? "auto").toLowerCase();
+let ambient: AudioClassifier | null = null;
+if (AMBIENT_WANT === "mock") ambient = mockClassifier;
+else if (AMBIENT_WANT === "hf") ambient = hfClassifier.available ? hfClassifier : null;
+else ambient = hfClassifier.available ? hfClassifier : mockClassifier; // "auto"
+
+const ambientProviderName: AmbientProviderName = ambient ? ambient.name : "none";
+
+/* ------------------------------------------------------------------ */
 /* Room state                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -86,6 +112,14 @@ interface Peer {
   utteranceSeq: number;
   /** active server-STT session, if any */
   stt: SttSession | null;
+  /** active ambient classification session, if any */
+  ambientSession: {
+    chunks: Buffer[];
+    bufferedBytes: number;
+    classifying: boolean;
+    stopped: boolean;
+    mapper: DetectionMapper;
+  } | null;
   /** simple token-bucket rate limiter */
   tokens: number;
   lastRefill: number;
@@ -141,6 +175,7 @@ function toAudioBuffer(data: unknown): Buffer | null {
 
 function leaveRoom(peer: Peer, reason: "left" | "disconnected"): void {
   stopStt(peer, false);
+  stopAmbient(peer, false);
   const room = rooms.get(peer.info.roomId ?? "");
   if (!room) return;
   if (room.peers.get(peer.id) === peer) {
@@ -157,6 +192,90 @@ function leaveRoom(peer: Peer, reason: "left" | "disconnected"): void {
   }
   // clear room ref so stale sends no-op
   peer.info.roomId = undefined;
+}
+
+/** Stop a peer's ambient session; optionally notify the peer of the new state */
+function stopAmbient(peer: Peer, notify: boolean): void {
+  if (peer.ambientSession) {
+    peer.ambientSession.stopped = true;
+    peer.ambientSession = null;
+  }
+  if (notify) {
+    sendTo(peer, { type: "ambient-status", status: "idle", provider: ambientProviderName });
+  }
+}
+
+function startAmbient(peer: Peer): void {
+  stopAmbient(peer, false);
+  if (!ambient) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.AMBIENT_UNAVAILABLE,
+      message: "Server ambient sound detection is not configured.",
+    });
+    sendTo(peer, { type: "ambient-status", status: "unavailable", provider: "none" });
+    return;
+  }
+
+  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
+  if (!room) return;
+
+  peer.ambientSession = {
+    chunks: [],
+    bufferedBytes: 0,
+    classifying: false,
+    stopped: false,
+    mapper: new DetectionMapper({ threshold: AMBIENT_THRESHOLD, cooldownMs: AMBIENT_COOLDOWN_S * 1000 }),
+  };
+  sendTo(peer, { type: "ambient-status", status: "active", provider: ambientProviderName });
+  console.log(`[aura] Ambient detection started for ${peer.info.displayName} (${ambient.name})`);
+}
+
+async function pumpAmbient(peer: Peer): Promise<void> {
+  const session = peer.ambientSession;
+  const room = peer.info.roomId ? rooms.get(peer.info.roomId) : undefined;
+  if (!session || session.stopped || !room || !ambient) return;
+  if (session.classifying || session.bufferedBytes < AMBIENT_WINDOW_BYTES) return;
+
+  session.classifying = true;
+  const window = Buffer.concat(session.chunks);
+  const clip = window.subarray(0, AMBIENT_WINDOW_BYTES);
+  const rest = window.subarray(AMBIENT_WINDOW_BYTES);
+  session.chunks = rest.length > 0 ? [rest] : [];
+  session.bufferedBytes = rest.length;
+
+  try {
+    const predictions = await ambient.classify(clip);
+    if (session.stopped) return;
+    const detections = session.mapper.map(predictions);
+    for (const d of detections) {
+      const event: AmbientPayload = { label: d.label, priority: d.priority, intensity: d.intensity };
+      // Ambient events describe the shared environment — the detecting
+      // client renders them too, so broadcast inclusively.
+      broadcast(room, { type: "ambient", fromId: peer.id, event });
+      console.log(`[aura] Ambient [${d.priority}] ${d.label} (score ${d.score.toFixed(2)}) in room ${room.id}`);
+    }
+  } catch (e) {
+    if (!session.stopped) {
+      const message = e instanceof Error ? e.message : "Ambient classification failed";
+      sendTo(peer, {
+        type: "error",
+        code: SERVER_ERRORS.AMBIENT_FAILED,
+        message,
+      });
+      sendTo(peer, { type: "ambient-status", status: "error", provider: ambientProviderName, message });
+      stopAmbient(peer, false);
+      return;
+    }
+  } finally {
+    if (peer.ambientSession === session) {
+      session.classifying = false;
+      // keep pumping while buffered audio remains
+      if (session.bufferedBytes >= AMBIENT_WINDOW_BYTES && !session.stopped) {
+        void pumpAmbient(peer);
+      }
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -314,6 +433,16 @@ function handleMessage(peer: Peer, msg: ClientMessage): void {
       return;
     }
 
+    case "ambient-start": {
+      startAmbient(peer);
+      return;
+    }
+
+    case "ambient-stop": {
+      stopAmbient(peer, true);
+      return;
+    }
+
     case "ping": {
       sendTo(peer, { type: "pong" });
       return;
@@ -357,7 +486,7 @@ function handleJoin(peer: Peer, roomId: string, displayName: string, role: Role)
   room.peers.set(peer.id, peer);
 
   const peers = [...room.peers.values()].map((p) => p.info);
-  sendTo(peer, { type: "welcome", clientId: peer.id, roomId, peers, sttProvider: sttProviderName });
+  sendTo(peer, { type: "welcome", clientId: peer.id, roomId, peers, sttProvider: sttProviderName, ambientProvider: ambientProviderName });
   broadcast(room, { type: "peer-joined", peer: info }, peer.id);
   broadcast(room, { type: "room-state", roomId, peerCount: room.peers.size }, peer.id);
 
@@ -403,18 +532,24 @@ wss.on("connection", (socket: ExtendedSocket) => {
     captionSeq: 0,
     utteranceSeq: 0,
     stt: null,
+    ambientSession: null,
     tokens: RATE_LIMIT_CAP,
     lastRefill: Date.now(),
   };
   peer.info.roomId = undefined;
   socket.auraPeer = peer;
 
-  // Advertise STT capability immediately so clients can pick an engine
-  // before joining a room.
+  // Advertise STT + ambient capability immediately so clients can pick an
+  // engine before joining a room.
   sendTo(peer, {
     type: "stt-status",
     status: stt ? "idle" : "unavailable",
     provider: sttProviderName,
+  });
+  sendTo(peer, {
+    type: "ambient-status",
+    status: ambient ? "idle" : "unavailable",
+    provider: ambientProviderName,
   });
 
   socket.on("pong", () => {
@@ -423,15 +558,28 @@ wss.on("connection", (socket: ExtendedSocket) => {
   });
 
   socket.on("message", (data, isBinary) => {
-    // Binary frames carry raw PCM16 mono 16kHz microphone audio for the
-    // sender's STT session. They bypass the text rate-limiter (a mic
-    // stream would trip it instantly) but are still size-capped.
+    // Binary frames carry raw PCM16 mono 16kHz microphone audio. The first
+    // byte selects the stream: 0x01 = STT session, 0x02 = ambient session.
+    // They bypass the text rate-limiter (a mic stream would trip it
+    // instantly) but are still size-capped.
     if (isBinary) {
       const buf = toAudioBuffer(data);
-      if (!buf || buf.length > MAX_BINARY_BYTES) return;
+      if (!buf || buf.length < 2 || buf.length > MAX_BINARY_BYTES) return;
       peer.isAlive = true;
+      const stream = buf[0];
+      const pcm = buf.subarray(1);
       try {
-        peer.stt?.sendAudio(buf);
+        if (stream === 0x01) {
+          peer.stt?.sendAudio(pcm);
+        } else if (stream === 0x02) {
+          const session = peer.ambientSession;
+          if (session && !session.stopped) {
+            session.chunks.push(pcm);
+            session.bufferedBytes += pcm.length;
+            void pumpAmbient(peer);
+          }
+        }
+        // unknown stream ids are ignored (forward-compatible)
       } catch {
         /* session dying — its close handler reports it */
       }
@@ -493,6 +641,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
 
   socket.on("close", () => {
     stopStt(peer, false);
+    stopAmbient(peer, false);
     if (socket.auraPeer?.info.roomId) {
       leaveRoom(socket.auraPeer, "disconnected");
     }
@@ -500,6 +649,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
 
   socket.on("error", () => {
     stopStt(peer, false);
+    stopAmbient(peer, false);
     if (socket.auraPeer?.info.roomId) {
       leaveRoom(socket.auraPeer, "disconnected");
     }
@@ -532,6 +682,9 @@ console.log(`[aura] Signaling server listening on ws://${HOST}:${PORT}`);
 console.log(`[aura] Heartbeat ${HEARTBEAT_INTERVAL_MS / 1000}s, timeout ${HEARTBEAT_TIMEOUT_MS / 1000}s, max room ${MAX_ROOM_SIZE}`);
 console.log(
   `[aura] STT provider: ${sttProviderName}${sttProviderName === "deepgram" ? ` (model=${STT_MODEL}, lang=${STT_LANGUAGE})` : ""}`
+);
+console.log(
+  `[aura] Ambient provider: ${ambientProviderName}${ambientProviderName === "hf" ? ` (model=${AMBIENT_MODEL}, window=${AMBIENT_WINDOW_S}s)` : ""}`
 );
 
 process.on("SIGINT", () => {

@@ -10,6 +10,7 @@
     "start:server": "node --no-warnings server/signaling-server.ts",
     "test:server": "node --no-warnings server/test-signaling.ts",
     "test:tts": "node --no-warnings server/test-tts.ts",
+    "test:ambient": "node --no-warnings server/test-ambient.ts",
     "lint": "eslint"
   },
   "dependencies": {

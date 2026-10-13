@@ -151,9 +151,13 @@ export class SignalingClient {
   }
 
   /** mic audio chunk (PCM16 mono 16kHz) for the sender's STT session */
-  sendAudio(pcm: ArrayBuffer | Uint8Array): void {
+  sendAudio(pcm: ArrayBuffer | Uint8Array, kind: "stt" | "ambient" = "stt"): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(pcm);
+      const bytes = pcm instanceof Uint8Array ? pcm : new Uint8Array(pcm);
+      const framed = new Uint8Array(bytes.length + 1);
+      framed[0] = kind === "stt" ? 0x01 : 0x02;
+      framed.set(bytes, 1);
+      this.ws.send(framed);
     }
   }
 
@@ -163,6 +167,14 @@ export class SignalingClient {
 
   stopStt(): void {
     this.sendRaw({ type: "stt-stop" });
+  }
+
+  startAmbient(): void {
+    this.sendRaw({ type: "ambient-start" });
+  }
+
+  stopAmbient(): void {
+    this.sendRaw({ type: "ambient-stop" });
   }
 
   /* ---------------- internals ---------------- */

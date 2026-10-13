@@ -50,6 +50,21 @@ ELEVENLABS_SIMILARITY_BOOST=0.75
 - `GET /api/tts/voices` → voice picker catalog (cached 10 min).
 - Repeat phrases are served from an in-memory LRU — second tap is instant and costs no quota.
 
+## Real ambient sound detection (Phase 4)
+
+In a room, the AI Co-Pilot streams mic audio to the signaling server, where an AudioSet classifier labels 4 s windows and broadcasts detections back to everyone. Outside a room (or without a backend engine) it runs the local simulation — same chips, flashes, and haptics either way.
+
+```bash
+AMBIENT_PROVIDER=auto       # auto | hf | mock
+HF_TOKEN=                   # HuggingFace token with Inference Providers permission
+AMBIENT_MODEL=MIT/ast-finetuned-audioset-10-10-0.4593
+AMBIENT_WINDOW_S=4
+AMBIENT_THRESHOLD=0.3
+AMBIENT_COOLDOWN_S=20
+```
+
+A sensitivity picker (Low / Standard / High) filters which priorities reach you. Privacy note: ambient mic audio leaves the device only when the server engine is active in a joined room — and every detection is announced visually, never audio-only.
+
 ## The three modes
 
 | Mode | Route | Who it's for |

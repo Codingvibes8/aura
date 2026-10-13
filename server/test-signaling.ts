@@ -80,7 +80,7 @@ async function main(): Promise<void> {
     process.execPath,
     ["--no-warnings", "server/signaling-server.ts"],
     {
-      env: { ...process.env, SIGNALING_PORT: String(PORT), STT_PROVIDER: "mock" },
+      env: { ...process.env, SIGNALING_PORT: String(PORT), STT_PROVIDER: "mock", AMBIENT_PROVIDER: "mock" },
       stdio: "pipe",
     }
   );
@@ -116,6 +116,15 @@ async function main(): Promise<void> {
       preJoinStatus
     );
 
+    const preJoinAmbient = await waitFor(aBox, "ambient-status");
+    check(
+      "ambient-status advertised on connect (mock)",
+      preJoinAmbient?.type === "ambient-status" &&
+        preJoinAmbient.status === "idle" &&
+        preJoinAmbient.provider === "mock",
+      preJoinAmbient
+    );
+
     a.send(JSON.stringify({ type: "join", roomId: "room-1", displayName: "Alice", role: "dhh" }));
 
     const welcomeA = await waitFor(aBox, "welcome");
@@ -130,6 +139,11 @@ async function main(): Promise<void> {
       "welcome advertises mock STT provider",
       welcomeA?.type === "welcome" && welcomeA.sttProvider === "mock",
       welcomeA?.type === "welcome" ? welcomeA.sttProvider : undefined
+    );
+    check(
+      "welcome advertises mock ambient provider",
+      welcomeA?.type === "welcome" && welcomeA.ambientProvider === "mock",
+      welcomeA?.type === "welcome" ? welcomeA.ambientProvider : undefined
     );
 
     /* ---- 2. peer-joined broadcast ---- */
@@ -226,9 +240,10 @@ async function main(): Promise<void> {
       finals.map((c) => c.utteranceId)
     );
 
-    // binary audio frames are accepted mid-session (no error, no crash)
+    // binary audio frames are accepted mid-session (no error, no crash).
+    // Stream header 0x01 routes to the STT session.
     const errorsBefore = aBox.filter((m) => m.type === "error").length;
-    a.send(Buffer.alloc(3200));
+    a.send(Buffer.concat([Buffer.from([0x01]), Buffer.alloc(3200)]));
     await sleep(300);
     const errorsAfter = aBox.filter((m) => m.type === "error").length;
     check("binary audio frames accepted without errors", errorsAfter === errorsBefore);
@@ -246,17 +261,74 @@ async function main(): Promise<void> {
       sttIdle
     );
 
-    /* ---- 6. malformed rejection ---- */
+    /* ---- 6. server ambient detection (mock classifier) ---- */
+    // Mock classifier emits scripted AudioSet labels per classify() call;
+    // feed it full windows directly (header 0x02 routes to ambient).
+    const markA = aBox.length;
+    a.send(JSON.stringify({ type: "ambient-start" }));
+    const ambientActive = await waitForWhere(
+      aBox,
+      (m, i) => m.type === "ambient-status" && i >= markA,
+      3000
+    );
+    check(
+      "ambient-start → active status",
+      ambientActive?.type === "ambient-status" && ambientActive.status === "active",
+      ambientActive
+    );
+
+    // one 4s window of silence-ish PCM; mock ignores content and returns
+    // the next scripted prediction set per call. Every WS message carries
+    // its own 0x02 stream header (ws maxPayload is 64KB, so chunk it).
+    const windowBytes = 4 * 16000 * 2;
+    for (let w = 0; w < 3; w++) {
+      const pcm = Buffer.alloc(windowBytes);
+      for (let off = 0; off < pcm.length; off += 60000) {
+        const slice = pcm.subarray(off, Math.min(off + 60000, pcm.length));
+        a.send(Buffer.concat([Buffer.from([0x02]), slice]));
+      }
+      await sleep(400);
+    }
+
+    const ambientEvents = aBox
+      .slice(markA)
+      .filter((m) => m.type === "ambient");
+    check("ambient detections broadcast to the room", ambientEvents.length > 0, ambientEvents.length);
+    const firstAmbient = ambientEvents[0];
+    check(
+      "ambient event carries mapped label + priority + intensity",
+      firstAmbient?.type === "ambient" &&
+        typeof firstAmbient.event.label === "string" &&
+        ["info", "warning", "critical"].includes(firstAmbient.event.priority) &&
+        firstAmbient.event.intensity >= 0 &&
+        firstAmbient.event.intensity <= 1,
+      firstAmbient?.type === "ambient" ? firstAmbient.event : firstAmbient
+    );
+
+    const markB = aBox.length;
+    a.send(JSON.stringify({ type: "ambient-stop" }));
+    const ambientIdle = await waitForWhere(
+      aBox,
+      (m, i) => m.type === "ambient-status" && i >= markB,
+      3000
+    );
+    check(
+      "ambient-stop → idle status",
+      ambientIdle?.type === "ambient-status" && ambientIdle.status === "idle",
+      ambientIdle
+    );
+
+    /* ---- 7. malformed rejection ---- */
     a.send(JSON.stringify({ type: "nope" }));
     const err = await waitFor(aBox, "error");
     check("malformed message → error response", err?.type === "error" && err.code === "BAD_MESSAGE", err);
 
-    /* ---- 7. ping/pong ---- */
+    /* ---- 8. ping/pong ---- */
     a.send(JSON.stringify({ type: "ping" }));
     const pong = await waitFor(aBox, "pong");
     check("ping → pong", !!pong);
 
-    /* ---- 8. leave → peer-left ---- */
+    /* ---- 9. leave → peer-left ---- */
     b.send(JSON.stringify({ type: "leave" }));
     const leftA = await waitFor(aBox, "peer-left");
     check(
