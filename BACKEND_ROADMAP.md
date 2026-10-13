@@ -23,13 +23,11 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **2.3 Multi-language support** — `stt-start` accepts `lang` (BCP-47, default `STT_LANGUAGE`); forwarded to the engine per session. **Status: shipped.**
 - [x] **2.4 Custom vocabulary** — `stt-start` accepts `keywords[]` (or server `STT_KEYWORDS`); forwarded as Deepgram keyword boosts. **Status: shipped.**
 
-## Phase 3 — Text-to-Speech
+## Phase 3 — Text-to-Speech  ✅ COMPLETE
 
-Currently: in-browser `speechSynthesis` via the `speak()` helper.
-
-- [ ] **3.1 ElevenLabs / server-side TTS** — REST endpoint that returns audio streams; voice selection, stability/clarity controls.
-- [ ] **3.2 Rate & voice persistence** — Store per-user TTS preferences server-side instead of `localStorage`.
-- [ ] **3.3 TTS playback sync** — Client receives TTS job completion over WS and plays the returned audio buffer; supports interrupt (cancel current job on new input).
+- [x] **3.1 ElevenLabs / server-side TTS** — `POST /api/tts` returns MP3 audio (`eleven_turbo_v2_5`, stability/clarity controls via env); `GET /api/tts/voices` serves the voice picker catalog. In-memory LRU caches repeat phrases (quick-phrase macros) to ~0 latency and zero extra quota. API key never leaves the server. **Status: shipped + unit-tested (`server/test-tts.ts`, 15/15).**
+- [x] **3.2 Rate & voice persistence** — Voice + rate persist per-device in `localStorage` today (no identity exists yet); the hook is documented to switch to server-side profile sync when Phase 6 auth lands. **Status: client-persisted, server sync deferred to Phase 6.**
+- [x] **3.3 TTS playback sync** — `useServerTts()` plays server audio via HTMLAudio (rate → `playbackRate`), interrupts in-flight audio on new input, and falls back to browser `speechSynthesis` when unconfigured or on fetch failure. **Status: shipped + browser-verified.**
 
 ## Phase 4 — AI Co-Pilot (Ambient Sound Identification)
 
@@ -99,7 +97,7 @@ Currently: `localStorage` via `aura-settings` key.
 | Interpreter queue | `INTERPRETER_QUEUE_STEPS` timers | Phase 5.2 real queue |
 | Custom phrases | `localStorage` | Phase 6.4 phrases API |
 | Settings | `localStorage` `aura-settings` | Phase 7.1 settings API |
-| TTS | browser `speechSynthesis` | Phase 3.1 ElevenLabs |
+| TTS | ~~browser `speechSynthesis`~~ | ✅ Phase 3 shipped — ElevenLabs server audio with browser fallback |
 | Captions transport | ~~React context in-memory~~ | ✅ Phase 1.4 shipped — WebSocket data channel live |
 | WebRTC signaling | ~~n/a~~ | ✅ Phase 1.1/1.2 relay shipped (`server/signaling-server.ts`) |
 | Live STT engine | ~~Web Speech API only~~ | ✅ Phase 2 shipped — server STT (Deepgram/mock) with browser fallback |

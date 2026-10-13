@@ -34,6 +34,22 @@ STT_KEYWORDS=penicillin,triage   # boosted vocabulary
 
 Without a `DEEPGRAM_API_KEY`, the scripted mock engine runs so the whole pipeline works out of the box.
 
+## Server-side speech synthesis (Phase 3)
+
+Quick phrases and the hearing composer speak via ElevenLabs when configured, browser voice otherwise:
+
+```bash
+ELEVENLABS_API_KEY=            # set to enable expressive server voices
+ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+ELEVENLABS_MODEL=eleven_turbo_v2_5
+ELEVENLABS_STABILITY=0.5
+ELEVENLABS_SIMILARITY_BOOST=0.75
+```
+
+- `POST /api/tts` → MP3 bytes (`{ text, voiceId? }`, 2000-char cap, `X-Aura-TTS-Cache: HIT/MISS`); 503 without a key.
+- `GET /api/tts/voices` → voice picker catalog (cached 10 min).
+- Repeat phrases are served from an in-memory LRU — second tap is instant and costs no quota.
+
 ## The three modes
 
 | Mode | Route | Who it's for |

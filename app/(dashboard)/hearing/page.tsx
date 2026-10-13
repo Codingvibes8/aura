@@ -4,6 +4,7 @@ import * as React from "react";
 import { useState } from "react";
 import { Mic, Send, Square, Users, Volume2 } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
+import { useServerTts } from "@/lib/use-server-tts";
 import { LiveCaptions } from "@/components/live-captions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,16 +16,16 @@ import { Badge } from "@/components/ui/badge";
  * TTS composer with speed control, and speaker diarization legend.
  */
 export default function HearingPage() {
-  const { speak, stopSpeaking, speaking, addCaption, vibrate } = useAura();
+  const { addCaption, vibrate } = useAura();
+  const tts = useServerTts();
   const [message, setMessage] = useState("");
-  const [rate, setRate] = useState(1);
 
   const sendSpoken = () => {
     const text = message.trim();
     if (!text) return;
     addCaption({ speaker: "self", text });
     vibrate(20);
-    speak(text, rate);
+    void tts.speak(text);
     setMessage("");
   };
 
@@ -98,6 +99,27 @@ export default function HearingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="tts-voice" className="text-xs font-medium text-muted-foreground">
+                  Voice
+                </label>
+                <select
+                  id="tts-voice"
+                  value={tts.voiceId}
+                  onChange={(e) => tts.setVoiceId(e.target.value)}
+                  className="h-9 max-w-56 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {tts.voices.length === 0 && <option value="">Loading voices…</option>}
+                  {tts.voices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+                <Badge variant={tts.configured ? "success" : "secondary"} title="Speech synthesis engine">
+                  {tts.configured ? "ElevenLabs" : "Browser voice"}
+                </Badge>
+              </div>
               <label htmlFor="tts-input" className="sr-only">
                 Message to speak aloud
               </label>
@@ -114,7 +136,7 @@ export default function HearingPage() {
               />
               <div className="flex flex-wrap items-center gap-3">
                 <span id="rate-label" className="text-xs font-medium text-muted-foreground">
-                  Speech rate — {rate.toFixed(2)}×
+                  Speech rate — {tts.rate.toFixed(2)}×
                 </span>
                 <Slider
                   aria-labelledby="rate-label"
@@ -122,17 +144,17 @@ export default function HearingPage() {
                   min={0.5}
                   max={2}
                   step={0.25}
-                  value={[rate]}
-                  onValueChange={([v]) => setRate(v)}
+                  value={[tts.rate]}
+                  onValueChange={([v]) => tts.setRate(v)}
                   className="max-w-48"
                 />
                 <div className="ms-auto flex gap-2">
-                  {speaking && (
-                    <Button type="button" variant="outline" size="sm" onClick={stopSpeaking}>
+                  {(tts.speaking || tts.loading) && (
+                    <Button type="button" variant="outline" size="sm" onClick={tts.stop}>
                       <Square aria-hidden="true" /> Stop
                     </Button>
                   )}
-                  <Button type="button" size="sm" onClick={sendSpoken} disabled={!message.trim()}>
+                  <Button type="button" size="sm" onClick={sendSpoken} disabled={!message.trim() || tts.loading}>
                     <Send aria-hidden="true" /> Speak aloud
                   </Button>
                 </div>

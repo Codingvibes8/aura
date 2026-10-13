@@ -4,6 +4,7 @@ import * as React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { MessageSquare, Plus, Sparkles } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
+import { useServerTts } from "@/lib/use-server-tts";
 import { PHRASE_CATEGORIES, PREDICTIVE_SUGGESTIONS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,8 @@ function loadCustomPhrases(): string[] {
  * arrow keys move through the grid (roving tabindex), Enter/Space speaks.
  */
 export function QuickPhrases({ className }: { className?: string }) {
-  const { speak, addCaption, vibrate, captions } = useAura();
+  const { addCaption, vibrate, captions } = useAura();
+  const tts = useServerTts();
   const [activeTab, setActiveTab] = useState(PHRASE_CATEGORIES[0].id);
   const [custom, setCustom] = useState<string[]>(loadCustomPhrases);
   const [newPhrase, setNewPhrase] = useState("");
@@ -38,9 +40,10 @@ export function QuickPhrases({ className }: { className?: string }) {
     (phrase: string) => {
       addCaption({ speaker: "self", text: phrase });
       vibrate(25);
-      speak(phrase, 1.05);
+      // Server ElevenLabs audio when configured, browser voice otherwise
+      void tts.speak(phrase);
     },
-    [addCaption, vibrate, speak]
+    [addCaption, vibrate, tts]
   );
 
   /* Predictive suggestions inferred from the most recent peer caption */
