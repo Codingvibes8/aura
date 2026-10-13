@@ -63,11 +63,11 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **8.4 Compliance** — `GET /api/account` export + `DELETE /api/account` erasure (GDPR/CCPA); VRS logging consent toggle gating the session log; privacy posture documented (no content logging, RLS, E2EE option). HIPAA attestation explicitly out of scope — noted as aligned practices only. **Status: shipped.**
 - [x] **8.5 Deployment** — Multi-stage `Dockerfile` (Next standalone + signaling) + `docker-compose.yml` (env passthrough, `/data` volume, healthcheck); TURN configurable via `NEXT_PUBLIC_TURN_*` (`lib/realtime/ice.ts`); same-origin reverse proxy recommended for `wss://`. **Status: shipped (compose not run in CI here).**
 
-## Phase 9 — Mobile / PWA (Stretch)
+## Phase 9 — Mobile / PWA (Stretch)  ✅ COMPLETE (web-feasible slice)
 
-- [ ] **9.1 PWA manifest & installability** — Offline shell, push notifications for critical alerts.
-- [ ] **9.2 Native vibration patterns** — Reliable haptics on iOS/Android (Web Vibration API is Android-only today).
-- [ ] **9.3 Background audio capture** — Co-pilot continues while screen is off (requires native or iOS/Android app).
+- [x] **9.1 PWA manifest & installability** — `app/manifest.ts` (standalone, themed), generated PNG icons (`/icon`, `/apple-icon`), iOS web-app meta; hand-rolled `/sw.js` (shell precache, network-first navigations with `/offline` fallback, cache-first statics; production-only registration). **Status: shipped + 15 shape checks.**
+- [x] **9.2 Native vibration patterns** — Web Vibration is Android-only with no iOS API to call: honest scope is (a) vibration where supported, (b) critical flashes upgraded to double-pulse for everyone, (c) settings states the iOS limitation plainly. Capacitor/native shell noted as the true fix. **Status: shipped (web-max).**
+- [x] **9.3 Background audio capture** — Mobile browsers suspend capture with the screen off, so: `useWakeLock` keeps the screen alive during live captions and relay calls; MediaSession puts the active call on the lock screen; Web Push pipeline (VAPID, subscriptions table + API, SW push handler, self test endpoint) delivers critical alerts even hidden; detector notifies via SW when the tab is hidden. **Status: shipped; live-push needs a signed-in grant (manual QA).**
 
 ---
 

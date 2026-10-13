@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Phone, PhoneOff, Siren, Video } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { usePeerCall } from "@/lib/realtime/use-peer-call";
+import { useWakeLock } from "@/lib/use-wake-lock";
 import type { InterpreterMatchInfo, Role } from "@/lib/realtime/schema";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,6 +65,29 @@ export function SosInterpreter({ compact = false, role = "dhh" }: { compact?: bo
   const [language, setLanguage] = useState("asl");
   const [emergency, setEmergency] = useState(false);
   const [logConsent, setLogConsent] = useState(true);
+
+  // Keep the screen awake + show lock-screen call info while matched.
+  useWakeLock(state === "matched");
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (state === "matched" && match) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: "Aura relay call",
+          artist: match.interpreterName,
+          album: `Room ${match.roomId}`,
+        });
+      } catch {
+        /* unsupported */
+      }
+    } else {
+      try {
+        navigator.mediaSession.metadata = null;
+      } catch {
+        /* unsupported */
+      }
+    }
+  }, [state, match]);
 
   const namePlaceholder = role === "hearing" ? "Hearing user" : role === "interpreter" ? "Interpreter" : "DHH user";
 

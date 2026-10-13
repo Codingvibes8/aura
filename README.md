@@ -92,6 +92,13 @@ Setup: create a project at supabase.com, run `supabase/migrations/0001_aura.sql`
 - **Your data**: `GET /api/account` exports everything, `DELETE /api/account` erases it.
 - **Deploy**: `docker compose up` (Next standalone + signaling, `/data` volume for the VRS log). Set `VRS_DEMO_MODE=false` in production and configure TURN via `NEXT_PUBLIC_TURN_*` for restrictive networks.
 
+## Installable PWA & alerts (Phase 9)
+
+- Install Aura from the browser (manifest + generated icons); the app shell works offline with an `/offline` fallback.
+- Enable **Critical alert notifications** in Accessibility settings — critical sounds notify even with the tab hidden (Web Push; VAPID keys via `npx web-push generate-vapid-keys`).
+- Live captions and relay calls hold a screen wake-lock so mobile browsers don't suspend the mic; the active call appears on the lock screen via Media Session.
+- Push subscriptions live in Supabase (`0002_push.sql`); full guide in `supabase/README.md`.
+
 ## The three modes
 
 | Mode | Route | Who it's for |

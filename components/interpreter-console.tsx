@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Headset, PhoneOff, Video } from "lucide-react";
 import { useRealtime } from "@/components/realtime-provider";
 import { usePeerCall } from "@/lib/realtime/use-peer-call";
+import { useWakeLock } from "@/lib/use-wake-lock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,8 @@ export function InterpreterConsole() {
   const [incoming, setIncoming] = useState<IncomingRequest[]>([]);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [endedNote, setEndedNote] = useState<string | null>(null);
+
+  useWakeLock(activeRequestId !== null);
 
   const displayName = name.trim() || "Interpreter";
 

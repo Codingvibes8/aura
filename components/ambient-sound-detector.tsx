@@ -6,6 +6,7 @@ import { Sparkles, Trash2, Vibrate } from "lucide-react";
 import { useAura, type AmbientEvent } from "@/components/aura-provider";
 import { useRealtime } from "@/components/realtime-provider";
 import { useRoomAmbient } from "@/lib/realtime/use-room-ambient";
+import { usePushNotifications } from "@/lib/use-push-notifications";
 import { openEnvelope } from "@/lib/realtime/crypto";
 import { roomKey } from "@/lib/realtime/room-key";
 import { AMBIENT_SOUNDS, type AmbientPriority } from "@/lib/mock-data";
@@ -105,6 +106,7 @@ export function AmbientSoundDetector({ className }: { className?: string }) {
     useAura();
   const { onMessage, roomId, roomPrivate, connectionState } = useRealtime();
   const roomAmbient = useRoomAmbient();
+  const push = usePushNotifications();
   const [coPilotOn, setCoPilotOn] = useState(true);
   const sensitivity = useSyncExternalStore(subscribeSensitivity, readSensitivity, () => "standard" as Sensitivity);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -126,9 +128,11 @@ export function AmbientSoundDetector({ className }: { className?: string }) {
       if (def.priority === "critical") {
         addCaption({ speaker: "system", text: `[${def.label}]` });
         speak(`Alert: ${def.label}`, 1.1);
+        // Hidden tab? The flash can't be seen — notify instead.
+        void push.notifyCritical("Aura critical alert", def.label);
       }
     },
-    [pushAmbient, triggerFlash, vibrate, speak, addCaption]
+    [pushAmbient, triggerFlash, vibrate, speak, addCaption, push]
   );
 
   const { state: ambientEngineState, start: startAmbientEngine, stop: stopAmbientEngine } = roomAmbient;

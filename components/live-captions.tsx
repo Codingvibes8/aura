@@ -6,6 +6,7 @@ import { Captions, Mic, MicOff, Play, Square, Trash2 } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
 import { useRealtime } from "@/components/realtime-provider";
 import { useRoomStt } from "@/lib/realtime/use-room-stt";
+import { useWakeLock } from "@/lib/use-wake-lock";
 import { sealText, openEnvelope } from "@/lib/realtime/crypto";
 import { roomKey } from "@/lib/realtime/room-key";
 import type { SttProviderName } from "@/lib/realtime/schema";
@@ -60,6 +61,10 @@ export function LiveCaptions({ compact = false, className }: LiveCaptionsProps) 
   const localUtterance = useRef(0);
 
   const listening = browserListening || roomStt.state === "active" || roomStt.state === "starting";
+
+  // Keep the screen awake while transcribing — mobile browsers suspend
+  // mic capture when the screen sleeps.
+  useWakeLock(listening);
 
   /* Server STT availability comes from stt-status (on connect) + welcome */
   useEffect(() => {

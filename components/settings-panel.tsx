@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Accessibility, Contrast, Type, Vibrate, Zap } from "lucide-react";
+import { Accessibility, BellRing, Contrast, Type, Vibrate, Zap } from "lucide-react";
 import { useAura } from "@/components/aura-provider";
+import { usePushNotifications } from "@/lib/use-push-notifications";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Slider } from "@/components/ui/slider";
@@ -25,6 +26,7 @@ export function SettingsPanel() {
     reducedMotion,
     toggleReducedMotion,
   } = useAura();
+  const push = usePushNotifications();
 
   return (
     <Sheet>
@@ -89,9 +91,28 @@ export function SettingsPanel() {
               id="haptics"
               icon={<Vibrate className="size-4 text-primary" aria-hidden="true" />}
               label="Haptic alerts"
-              description="Vibrate on supported mobile devices (always paired with visual cues)"
+              description="Vibration on Android (iOS has no vibration API — critical alerts flash twice instead)"
               checked={haptics}
               onCheckedChange={toggleHaptics}
+            />
+            <ToggleRow
+              id="push"
+              icon={<BellRing className="size-4 text-primary" aria-hidden="true" />}
+              label="Critical alert notifications"
+              description={
+                push.state === "unsupported"
+                  ? "Notifications are not supported in this browser"
+                  : push.state === "denied"
+                    ? "Blocked — allow notifications in your browser settings"
+                    : push.state === "on"
+                      ? "On — critical sounds notify you even with the tab hidden"
+                      : "Notify on critical sounds when the tab is hidden"
+              }
+              checked={push.state === "on"}
+              onCheckedChange={() => {
+                if (push.state === "on") void push.disable();
+                else void push.enable();
+              }}
             />
             <ToggleRow
               id="motion"

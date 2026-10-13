@@ -48,3 +48,4 @@ so the demo works without an account.
 | `profiles` | display name, role, language | owner-only |
 | `user_settings` | a11y flags, TTS voice/rate, ambient sensitivity | owner-only |
 | `custom_phrases` | cloud quick phrases | owner-only |
+| `push_subscriptions` | Web Push endpoints per device (`0002_push.sql`) | owner-only |
