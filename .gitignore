@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# aura runtime data (VRS session log)
+data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

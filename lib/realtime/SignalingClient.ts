@@ -177,6 +177,26 @@ export class SignalingClient {
     this.sendRaw({ type: "ambient-stop" });
   }
 
+  vrsRequest(opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }): void {
+    this.sendRaw({ type: "interpreter-request", ...opts });
+  }
+
+  vrsCancel(): void {
+    this.sendRaw({ type: "interpreter-cancel" });
+  }
+
+  vrsEnd(): void {
+    this.sendRaw({ type: "interpreter-end" });
+  }
+
+  vrsSetAvailable(available: boolean, languages: string[]): void {
+    this.sendRaw({ type: "interpreter-status", available, languages });
+  }
+
+  vrsDecline(requestId: string): void {
+    this.sendRaw({ type: "interpreter-decline", requestId });
+  }
+
   /* ---------------- internals ---------------- */
 
   private sendRaw(msg: ClientMessage): void {

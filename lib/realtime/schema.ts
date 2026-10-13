@@ -115,6 +115,37 @@ export const AmbientStartMessage = z.object({ type: z.literal("ambient-start") }
 /** End server-side ambient sound classification for this peer */
 export const AmbientStopMessage = z.object({ type: z.literal("ambient-stop") });
 
+export const VRS_LANGUAGES = ["asl", "bsl", "lsf", "is", "any"] as const;
+
+/** Request an on-demand interpreter (Phase 5) */
+export const InterpreterRequestMessage = z.object({
+  type: z.literal("interpreter-request"),
+  /** room the interpreter should join; defaults to a fresh SOS room */
+  roomId: z.string().min(1).max(64).optional(),
+  language: z.string().min(1).max(16).default("asl"),
+  priority: z.enum(["standard", "emergency"]).default("standard"),
+  displayName: z.string().min(1).max(40).optional(),
+});
+
+/** Cancel my queued interpreter request */
+export const InterpreterCancelMessage = z.object({ type: z.literal("interpreter-cancel") });
+
+/** Interpreter presence + availability (role=interpreter peers) */
+export const InterpreterStatusMessage = z.object({
+  type: z.literal("interpreter-status"),
+  available: z.boolean(),
+  languages: z.array(z.string().min(1).max(16)).max(8).default([]),
+});
+
+/** Interpreter declines a match — request requeues at front */
+export const InterpreterDeclineMessage = z.object({
+  type: z.literal("interpreter-decline"),
+  requestId: z.string().min(1),
+});
+
+/** End the active relay call (either side) */
+export const InterpreterEndMessage = z.object({ type: z.literal("interpreter-end") });
+
 export const ClientMessage = z.discriminatedUnion("type", [
   JoinMessage,
   SignalMessage,
@@ -124,6 +155,11 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SttStopMessage,
   AmbientStartMessage,
   AmbientStopMessage,
+  InterpreterRequestMessage,
+  InterpreterCancelMessage,
+  InterpreterStatusMessage,
+  InterpreterDeclineMessage,
+  InterpreterEndMessage,
   PingMessage,
   LeaveMessage,
 ]);
@@ -140,6 +176,17 @@ export type SttStatus = "active" | "idle" | "error" | "unavailable";
 export type AmbientProviderName = "hf" | "mock" | "none";
 export type AmbientStatus = "active" | "idle" | "error" | "unavailable";
 
+export interface InterpreterMatchInfo {
+  requestId: string;
+  roomId: string;
+  interpreterId: string;
+  interpreterName: string;
+  languages: string[];
+  language: string;
+  priority: "standard" | "emergency";
+  demo: boolean;
+}
+
 export type ServerMessage =
   | { type: "welcome"; clientId: string; roomId: string; peers: PeerInfo[]; sttProvider: SttProviderName; ambientProvider: AmbientProviderName }
   | { type: "peer-joined"; peer: PeerInfo }
@@ -150,6 +197,10 @@ export type ServerMessage =
   | { type: "room-state"; roomId: string; peerCount: number }
   | { type: "stt-status"; status: SttStatus; provider: SttProviderName; message?: string }
   | { type: "ambient-status"; status: AmbientStatus; provider: AmbientProviderName; message?: string }
+  | { type: "interpreter-queue"; requestId: string; position: number; ahead: number; etaSeconds: number; priority: "standard" | "emergency" }
+  | { type: "interpreter-match"; match: InterpreterMatchInfo }
+  | { type: "interpreter-match-request"; requestId: string; roomId: string; displayName: string; language: string; priority: "standard" | "emergency" }
+  | { type: "interpreter-ended"; requestId: string; reason: "ended" | "cancelled" | "disconnected" | "declined" }
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
@@ -167,6 +218,8 @@ export const SERVER_ERRORS = {
   STT_FAILED: "STT_FAILED",
   AMBIENT_UNAVAILABLE: "AMBIENT_UNAVAILABLE",
   AMBIENT_FAILED: "AMBIENT_FAILED",
+  VRS_ALREADY_QUEUED: "VRS_ALREADY_QUEUED",
+  VRS_NOT_QUEUED: "VRS_NOT_QUEUED",
 } as const;
 export type ServerErrorCode = (typeof SERVER_ERRORS)[keyof typeof SERVER_ERRORS];
 

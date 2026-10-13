@@ -65,6 +65,14 @@ AMBIENT_COOLDOWN_S=20
 
 A sensitivity picker (Low / Standard / High) filters which priorities reach you. Privacy note: ambient mic audio leaves the device only when the server engine is active in a joined room — and every detection is announced visually, never audio-only.
 
+## On-demand interpreters (Phase 5)
+
+**Connect to Interpreter** runs a real relay queue: pick a sign language, flag emergencies to jump the line, watch live position + ETA, then video-call the matched interpreter over WebRTC.
+
+- Interpreters work from the **Interpreter** nav page: publish availability + languages, accept incoming requests (auto-joins the caller's room with camera), or decline to requeue.
+- No human online? A demo interpreter auto-matches after ~8 s so the flow works out of the box (`VRS_DEMO_MODE=false` for production).
+- Every call appends a metadata record to `data/vrs-sessions.jsonl` (who, language, duration, end reason — never audio/video).
+
 ## The three modes
 
 | Mode | Route | Who it's for |

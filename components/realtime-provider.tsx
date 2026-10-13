@@ -34,6 +34,11 @@ interface RealtimeContextValue {
   stopStt: () => void;
   startAmbient: () => void;
   stopAmbient: () => void;
+  vrsRequest: (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }) => void;
+  vrsCancel: () => void;
+  vrsEnd: () => void;
+  vrsSetAvailable: (available: boolean, languages: string[]) => void;
+  vrsDecline: (requestId: string) => void;
   /** register a listener for inbound server messages; returns an unsubscribe fn */
   onMessage: (handler: (msg: ServerMessage) => void) => () => void;
 }
@@ -136,6 +141,29 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     clientRef.current?.stopAmbient();
   }, []);
 
+  const vrsRequest = useCallback(
+    (opts: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }) => {
+      clientRef.current?.vrsRequest(opts);
+    },
+    []
+  );
+
+  const vrsCancel = useCallback(() => {
+    clientRef.current?.vrsCancel();
+  }, []);
+
+  const vrsEnd = useCallback(() => {
+    clientRef.current?.vrsEnd();
+  }, []);
+
+  const vrsSetAvailable = useCallback((available: boolean, languages: string[]) => {
+    clientRef.current?.vrsSetAvailable(available, languages);
+  }, []);
+
+  const vrsDecline = useCallback((requestId: string) => {
+    clientRef.current?.vrsDecline(requestId);
+  }, []);
+
   const onMessage = useCallback((handler: (msg: ServerMessage) => void) => {
     handlersRef.current.add(handler);
     return () => {
@@ -159,9 +187,14 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       stopStt,
       startAmbient,
       stopAmbient,
+      vrsRequest,
+      vrsCancel,
+      vrsEnd,
+      vrsSetAvailable,
+      vrsDecline,
       onMessage,
     }),
-    [connectionState, clientId, peers, roomId, join, leave, sendSignal, sendCaption, sendAmbient, sendAudio, startStt, stopStt, startAmbient, stopAmbient, onMessage]
+    [connectionState, clientId, peers, roomId, join, leave, sendSignal, sendCaption, sendAmbient, sendAudio, startStt, stopStt, startAmbient, stopAmbient, vrsRequest, vrsCancel, vrsEnd, vrsSetAvailable, vrsDecline, onMessage]
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

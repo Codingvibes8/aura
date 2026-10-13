@@ -11,6 +11,7 @@
     "test:server": "node --no-warnings server/test-signaling.ts",
     "test:tts": "node --no-warnings server/test-tts.ts",
     "test:ambient": "node --no-warnings server/test-ambient.ts",
+    "test:vrs": "node --no-warnings server/test-vrs.ts",
     "lint": "eslint"
   },
   "dependencies": {

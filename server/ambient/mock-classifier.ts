@@ -22,7 +22,8 @@ export class MockClassifier implements AudioClassifier {
   readonly available = true;
   private step = 0;
 
-  async classify(): Promise<ClassifiedSound[]> {
+  async classify(pcm: Buffer): Promise<ClassifiedSound[]> {
+    void pcm; // content-independent: timing drives the script
     const out = SCRIPT[this.step % SCRIPT.length];
     this.step++;
     return out;

@@ -23,6 +23,8 @@ import { HfAstClassifier } from "./ambient/hf-classifier.ts";
 import { MockClassifier } from "./ambient/mock-classifier.ts";
 import { DetectionMapper } from "./ambient/map.ts";
 import type { AudioClassifier } from "./ambient/classifier.ts";
+import { InterpreterQueue, estimateWaitSeconds, type QueueEntry } from "./vrs/queue.ts";
+import { VrsSessionLog, resolveVrsLogFile } from "./vrs/sessions.ts";
 import {
   parseClientMessage,
   toServerMessage,
@@ -96,6 +98,355 @@ else ambient = hfClassifier.available ? hfClassifier : mockClassifier; // "auto"
 const ambientProviderName: AmbientProviderName = ambient ? ambient.name : "none";
 
 /* ------------------------------------------------------------------ */
+/* Interpreter relay (Phase 5)                                         */
+/* ------------------------------------------------------------------ */
+
+const VRS_DEMO_MODE = (process.env.VRS_DEMO_MODE ?? "true").toLowerCase() !== "false";
+const VRS_DEMO_DELAY_S = Number(process.env.VRS_DEMO_DELAY_S ?? 8);
+
+const vrsQueue = new InterpreterQueue();
+const vrsLog = new VrsSessionLog(resolveVrsLogFile());
+
+interface VrsCall {
+  requestId: string;
+  roomId: string;
+  requesterId: string;
+  requesterName: string;
+  interpreterId: string;
+  interpreterName: string;
+  language: string;
+  priority: "standard" | "emergency";
+  demo: boolean;
+  startedAt: number;
+}
+
+const vrsCalls = new Map<string, VrsCall>();
+const vrsDemoTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function findPeerById(id: string): Peer | undefined {
+  for (const room of rooms.values()) {
+    const p = room.peers.get(id);
+    if (p) return p;
+  }
+  return undefined;
+}
+
+function clearDemoTimer(requestId: string): void {
+  const t = vrsDemoTimers.get(requestId);
+  if (t) {
+    clearTimeout(t);
+    vrsDemoTimers.delete(requestId);
+  }
+}
+
+function sendQueuePosition(entry: QueueEntry): void {
+  const peer = findPeerById(entry.peerId);
+  if (!peer) return;
+  const position = vrsQueue.positionOf(entry.requestId);
+  if (position < 0) return;
+  sendTo(peer, {
+    type: "interpreter-queue",
+    requestId: entry.requestId,
+    position: position + 1,
+    ahead: position,
+    etaSeconds: estimateWaitSeconds(position),
+    priority: entry.priority,
+  });
+}
+
+function broadcastQueuePositions(): void {
+  for (const entry of vrsQueue.list()) {
+    sendQueuePosition(entry);
+  }
+}
+
+function startVrsCall(call: Omit<VrsCall, "startedAt">): void {
+  const full: VrsCall = { ...call, startedAt: Date.now() };
+  vrsCalls.set(call.requestId, full);
+  clearDemoTimer(call.requestId);
+
+  const requester = findPeerById(call.requesterId);
+  if (requester) {
+    requester.vrsRequestId = call.requestId;
+    const interp = vrsQueue.getInterpreter(call.interpreterId);
+    sendTo(requester, {
+      type: "interpreter-match",
+      match: {
+        requestId: call.requestId,
+        roomId: call.roomId,
+        interpreterId: call.interpreterId,
+        interpreterName: call.interpreterName,
+        languages: interp ? interp.languages : [call.language],
+        language: call.language,
+        priority: call.priority,
+        demo: call.demo,
+      },
+    });
+  }
+
+  if (!call.demo) {
+    const interpPeer = findPeerById(call.interpreterId);
+    if (interpPeer) {
+      sendTo(interpPeer, {
+        type: "interpreter-match-request",
+        requestId: call.requestId,
+        roomId: call.roomId,
+        displayName: call.requesterName,
+        language: call.language,
+        priority: call.priority,
+      });
+    }
+  }
+  console.log(
+    `[aura] VRS match ${call.requestId}: ${call.requesterName} ↔ ${call.interpreterName} (${call.language}${call.demo ? ", demo" : ""})`
+  );
+}
+
+/** Match queued requests against available interpreters until none match. */
+function tryMatchVrs(): void {
+  for (;;) {
+    const match = vrsQueue.matchNext();
+    if (!match) break;
+    startVrsCall({
+      requestId: match.requestId,
+      roomId: match.roomId,
+      requesterId: match.peerId,
+      requesterName: match.displayName,
+      interpreterId: match.interpreterId,
+      interpreterName: match.interpreterName,
+      language: match.language,
+      priority: match.priority,
+      demo: false,
+    });
+  }
+  broadcastQueuePositions();
+}
+
+function endVrsCall(
+  requestId: string,
+  reason: "ended" | "cancelled" | "disconnected" | "declined",
+  rematch = true
+): void {
+  const call = vrsCalls.get(requestId);
+  if (!call) return;
+  vrsCalls.delete(requestId);
+  clearDemoTimer(requestId);
+  vrsQueue.releaseInterpreter(call.interpreterId);
+
+  const requester = findPeerById(call.requesterId);
+  if (requester) {
+    if (requester.vrsRequestId === requestId) requester.vrsRequestId = null;
+    sendTo(requester, { type: "interpreter-ended", requestId, reason });
+  }
+  if (!call.demo) {
+    const interpPeer = findPeerById(call.interpreterId);
+    if (interpPeer) {
+      sendTo(interpPeer, { type: "interpreter-ended", requestId, reason });
+    }
+  }
+
+  const now = Date.now();
+  vrsLog.recordEnd({
+    sessionId: requestId,
+    requestId,
+    roomId: call.roomId,
+    requesterId: call.requesterId,
+    requesterName: call.requesterName,
+    interpreterId: call.interpreterId,
+    interpreterName: call.interpreterName,
+    language: call.language,
+    priority: call.priority,
+    demo: call.demo,
+    startedAt: call.startedAt,
+    endedAt: now,
+    durationS: Math.max(0, Math.round((now - call.startedAt) / 1000)),
+    endReason: reason,
+  });
+  console.log(`[aura] VRS call ${requestId} ended (${reason})`);
+
+  if (rematch) tryMatchVrs();
+}
+
+/** Demo fallback: auto-match a virtual interpreter when none is live. */
+function scheduleDemoFallback(requestId: string): void {
+  if (!VRS_DEMO_MODE) return;
+  clearDemoTimer(requestId);
+  const t = setTimeout(() => {
+    vrsDemoTimers.delete(requestId);
+    const entry = vrsQueue.list().find((e) => e.requestId === requestId);
+    if (!entry) return; // matched or cancelled meanwhile
+    vrsQueue.cancel(entry.requestId, entry.peerId);
+    startVrsCall({
+      requestId: entry.requestId,
+      roomId: entry.roomId,
+      requesterId: entry.peerId,
+      requesterName: entry.displayName,
+      interpreterId: "demo-interpreter",
+      interpreterName: "Demo Interpreter",
+      language: entry.language,
+      priority: entry.priority,
+      demo: true,
+    });
+    broadcastQueuePositions();
+  }, VRS_DEMO_DELAY_S * 1000);
+  vrsDemoTimers.set(requestId, t);
+}
+
+function randomRoomCode(): string {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function handleVrsRequest(
+  peer: Peer,
+  msg: { roomId?: string; language: string; priority: "standard" | "emergency"; displayName?: string }
+): void {
+  const alreadyQueued = vrsQueue.list().some((e) => e.peerId === peer.id);
+  if (alreadyQueued) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.VRS_ALREADY_QUEUED,
+      message: "You already have an active interpreter request.",
+    });
+    return;
+  }
+  const inCall = [...vrsCalls.values()].some(
+    (c) => c.requesterId === peer.id || c.interpreterId === peer.id
+  );
+  if (inCall) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.VRS_ALREADY_QUEUED,
+      message: "You are already in a relay call.",
+    });
+    return;
+  }
+
+  // The interpreter joins the requester where they are; SOS from outside a
+  // room auto-creates one.
+  let roomId = peer.info.roomId ?? msg.roomId;
+  if (!roomId) {
+    roomId = `SOS-${randomRoomCode()}`;
+  }
+  if (!peer.info.roomId) {
+    handleJoin(peer, roomId, msg.displayName ?? peer.info.displayName, peer.info.role);
+    (peer.socket as ExtendedSocket).joined = true;
+  } else {
+    roomId = peer.info.roomId;
+  }
+
+  const entry = vrsQueue.enqueue({
+    peerId: peer.id,
+    roomId,
+    displayName: msg.displayName ?? peer.info.displayName,
+    language: msg.language,
+    priority: msg.priority,
+  });
+  peer.vrsRequestId = entry.requestId;
+  console.log(
+    `[aura] VRS request ${entry.requestId} from ${entry.displayName} (${entry.language}, ${entry.priority})`
+  );
+  sendQueuePosition(entry);
+  tryMatchVrs();
+  if (vrsQueue.positionOf(entry.requestId) >= 0) {
+    scheduleDemoFallback(entry.requestId);
+  }
+}
+
+function handleVrsCancel(peer: Peer): void {
+  const removed = vrsQueue.cancelForPeer(peer.id);
+  if (removed) {
+    clearDemoTimer(removed.requestId);
+    if (peer.vrsRequestId === removed.requestId) peer.vrsRequestId = null;
+    sendTo(peer, { type: "interpreter-ended", requestId: removed.requestId, reason: "cancelled" });
+    broadcastQueuePositions();
+    return;
+  }
+  const active = [...vrsCalls.values()].find((c) => c.requesterId === peer.id);
+  if (active) {
+    endVrsCall(active.requestId, "cancelled");
+    return;
+  }
+  sendTo(peer, {
+    type: "error",
+    code: SERVER_ERRORS.VRS_NOT_QUEUED,
+    message: "No active interpreter request to cancel.",
+  });
+}
+
+function handleInterpreterStatus(peer: Peer, available: boolean, languages: string[]): void {
+  const existing = vrsQueue.getInterpreter(peer.id);
+  vrsQueue.setInterpreter({
+    peerId: peer.id,
+    displayName: peer.info.displayName,
+    languages,
+    available,
+    busyWith: existing?.busyWith ?? null,
+  });
+  console.log(
+    `[aura] Interpreter ${peer.info.displayName} ${available ? "available" : "unavailable"} [${languages.join(", ") || "—"}]`
+  );
+  tryMatchVrs();
+}
+
+function handleInterpreterDecline(peer: Peer, requestId: string): void {
+  const call = vrsCalls.get(requestId);
+  if (!call || call.interpreterId !== peer.id || call.demo) return;
+  // end without rematching yet — the declined request requeues at front first
+  endVrsCall(requestId, "declined", false);
+  const re = vrsQueue.requeueFront({
+    peerId: call.requesterId,
+    roomId: call.roomId,
+    displayName: call.requesterName,
+    language: call.language,
+    priority: call.priority,
+  });
+  const requester = findPeerById(call.requesterId);
+  if (requester) requester.vrsRequestId = re.requestId;
+  tryMatchVrs();
+  if (vrsQueue.positionOf(re.requestId) >= 0) {
+    scheduleDemoFallback(re.requestId);
+  }
+}
+
+function handleInterpreterEnd(peer: Peer): void {
+  const active = [...vrsCalls.values()].find(
+    (c) => c.requesterId === peer.id || c.interpreterId === peer.id
+  );
+  if (!active) {
+    sendTo(peer, {
+      type: "error",
+      code: SERVER_ERRORS.VRS_NOT_QUEUED,
+      message: "No active relay call to end.",
+    });
+    return;
+  }
+  endVrsCall(active.requestId, "ended");
+}
+
+/** Queue/interpreter/call cleanup on leave + disconnect (logs sessions). */
+function cleanupVrsPeer(peer: Peer): void {
+  const removed = vrsQueue.cancelForPeer(peer.id);
+  if (removed) {
+    clearDemoTimer(removed.requestId);
+    broadcastQueuePositions();
+  }
+  if (peer.vrsRequestId) peer.vrsRequestId = null;
+
+  const presence = vrsQueue.getInterpreter(peer.id);
+  if (presence) {
+    vrsQueue.removeInterpreter(peer.id);
+    if (presence.busyWith) {
+      endVrsCall(presence.busyWith, "disconnected");
+    }
+  }
+  for (const [reqId, call] of [...vrsCalls]) {
+    if (call.requesterId === peer.id || call.interpreterId === peer.id) {
+      endVrsCall(reqId, "disconnected");
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Room state                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -112,6 +463,8 @@ interface Peer {
   utteranceSeq: number;
   /** active server-STT session, if any */
   stt: SttSession | null;
+  /** active VRS request id (queued or in call), if any */
+  vrsRequestId: string | null;
   /** active ambient classification session, if any */
   ambientSession: {
     chunks: Buffer[];
@@ -173,9 +526,10 @@ function toAudioBuffer(data: unknown): Buffer | null {
   }
 }
 
-function leaveRoom(peer: Peer, reason: "left" | "disconnected"): void {
+function leaveRoom(peer: Peer, reason: "left" | "disconnected", cleanupVrs = true): void {
   stopStt(peer, false);
   stopAmbient(peer, false);
+  if (cleanupVrs) cleanupVrsPeer(peer);
   const room = rooms.get(peer.info.roomId ?? "");
   if (!room) return;
   if (room.peers.get(peer.id) === peer) {
@@ -368,6 +722,30 @@ function startStt(peer: Peer, lang: string | undefined, keywords: string[] | und
   console.log(`[aura] STT started for ${peer.info.displayName} (${stt.name}, lang=${lang || STT_LANGUAGE})`);
 }
 
+/** Move a peer between rooms (interpreters hopping to calls). A call only
+ *  ends when the peer leaves THAT call's room — hopping from a lobby into
+ *  the call room preserves it. Queued requests are room-bound and drop. */
+function switchRoom(peer: Peer, roomId: string, displayName: string, role: Role): void {
+  const fromRoom = peer.info.roomId;
+  for (const [reqId, call] of [...vrsCalls]) {
+    if (call.requesterId === peer.id || call.interpreterId === peer.id) {
+      if (fromRoom === call.roomId && roomId !== call.roomId) {
+        endVrsCall(reqId, "disconnected");
+      }
+    }
+  }
+  const queued = vrsQueue.cancelForPeer(peer.id);
+  if (queued) {
+    clearDemoTimer(queued.requestId);
+    broadcastQueuePositions();
+  }
+  if (peer.vrsRequestId) peer.vrsRequestId = null;
+  if (peer.info.roomId) {
+    leaveRoom(peer, "left", false);
+  }
+  handleJoin(peer, roomId, displayName, role);
+}
+
 /* ------------------------------------------------------------------ */
 /* Message handlers (server-joined peers only)                         */
 /* ------------------------------------------------------------------ */
@@ -440,6 +818,31 @@ function handleMessage(peer: Peer, msg: ClientMessage): void {
 
     case "ambient-stop": {
       stopAmbient(peer, true);
+      return;
+    }
+
+    case "interpreter-request": {
+      handleVrsRequest(peer, msg);
+      return;
+    }
+
+    case "interpreter-cancel": {
+      handleVrsCancel(peer);
+      return;
+    }
+
+    case "interpreter-status": {
+      handleInterpreterStatus(peer, msg.available, msg.languages);
+      return;
+    }
+
+    case "interpreter-decline": {
+      handleInterpreterDecline(peer, msg.requestId);
+      return;
+    }
+
+    case "interpreter-end": {
+      handleInterpreterEnd(peer);
       return;
     }
 
@@ -533,6 +936,7 @@ wss.on("connection", (socket: ExtendedSocket) => {
     utteranceSeq: 0,
     stt: null,
     ambientSession: null,
+    vrsRequestId: null,
     tokens: RATE_LIMIT_CAP,
     lastRefill: Date.now(),
   };
@@ -607,9 +1011,12 @@ wss.on("connection", (socket: ExtendedSocket) => {
     peer.isAlive = true;
 
     if (msg.type === "join") {
-      if (socket.joined) return; // already in a room — must leave first
-      socket.joined = true;
-      handleJoin(peer, msg.roomId, msg.displayName, msg.role);
+      if (socket.joined && peer.info.roomId) {
+        switchRoom(peer, msg.roomId, msg.displayName, msg.role);
+      } else {
+        socket.joined = true;
+        handleJoin(peer, msg.roomId, msg.displayName, msg.role);
+      }
       return;
     }
 
@@ -685,6 +1092,9 @@ console.log(
 );
 console.log(
   `[aura] Ambient provider: ${ambientProviderName}${ambientProviderName === "hf" ? ` (model=${AMBIENT_MODEL}, window=${AMBIENT_WINDOW_S}s)` : ""}`
+);
+console.log(
+  `[aura] VRS relay: demo=${VRS_DEMO_MODE ? `on (${VRS_DEMO_DELAY_S}s)` : "off"}, log=${resolveVrsLogFile() ?? "disabled"}`
 );
 
 process.on("SIGINT", () => {

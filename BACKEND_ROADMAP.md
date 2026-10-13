@@ -36,14 +36,12 @@ The app is architected for WebRTC/WebSocket; today streams are simulated in-page
 - [x] **4.3 Event fan-out** — Detections broadcast inclusively to the room as `ambient` messages (existing Phase 1 channel); detector renders own echo + peers through one shared policy. **Status: shipped + E2E-tested.**
 - [x] **4.4 Priority & policy engine** — Per-sound 20 s cooldowns server-side; client sensitivity (Low = critical only / Standard / High = everything) persisted per-device; criticals captioned + spoken, everything flashed + vibrated. **Status: shipped.**
 
-## Phase 5 — Interpreter Relay Service (VRS)
+## Phase 5 — Interpreter Relay Service (VRS)  ✅ COMPLETE
 
-Currently: simulated queue with `INTERPRETER_QUEUE_STEPS` timers.
-
-- [ ] **5.1 Interpreter directory & matching** — Database of certified interpreters (language pairs, certifications, availability). Matching algorithm by language + queue position.
-- [ ] **5.2 Queue system** — Real queue with position broadcasting, estimated wait, and priority/emergency escalation.
-- [ ] **5.3 VRS video call** — WebRTC video room between deaf user, interpreter, and hearing party (3-way call).
-- [ ] **5.4 Session records** — Signed session metadata for compliance (who, when, duration) — optional recording with consent.
+- [x] **5.1 Interpreter directory & matching** — Live presence pool: interpreters publish availability + languages from the `/interpreter` console; server matches by language overlap (exact or `any`). No DB yet — presence is in-memory, directory persistence lands with Phase 6. **Status: shipped.**
+- [x] **5.2 Queue system** — Emergency requests sort ahead of standard; live position + ETA broadcasts; cancel; interpreter decline requeues at front; auto-rematch on free; demo fallback auto-matches a virtual interpreter (configurable, on by default). **Status: shipped + tested (`server/test-vrs.ts`).**
+- [x] **5.3 VRS video call** — 1:1 WebRTC video (requester calls, interpreter auto-answers) over the existing signal relay with public STUN. Same-machine/LAN verified; symmetric NATs need TURN (Phase 8). **Status: shipped; media verified where devices exist.**
+- [x] **5.4 Session records** — Append-only JSONL metadata log (parties, language, duration, end reason) — never audio/video content. **Status: shipped (`data/vrs-sessions.jsonl`).**
 
 ## Phase 6 — Auth, Users & Persistence
 
@@ -92,7 +90,7 @@ Currently: `localStorage` via `aura-settings` key.
 |---|---|---|
 | Demo chat | `DEMO_CONVERSATION` in `mock-data.ts` | Kept as no-mic demo; live path is Phase 2.1 server STT |
 | Ambient sounds | ~~`setInterval` + `AMBIENT_SOUNDS`~~ | ✅ Phase 4 shipped — AudioSet classifier with local-sim fallback |
-| Interpreter queue | `INTERPRETER_QUEUE_STEPS` timers | Phase 5.2 real queue |
+| Interpreter queue | ~~`INTERPRETER_QUEUE_STEPS` timers~~ | ✅ Phase 5 shipped — real queue, matching, video, session log |
 | Custom phrases | `localStorage` | Phase 6.4 phrases API |
 | Settings | `localStorage` `aura-settings` | Phase 7.1 settings API |
 | TTS | ~~browser `speechSynthesis`~~ | ✅ Phase 3 shipped — ElevenLabs server audio with browser fallback |

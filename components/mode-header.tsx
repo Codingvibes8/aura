@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Ear, Users, Video } from "lucide-react";
+import { Ear, Headset, Users, Video } from "lucide-react";
 import { ConnectionStatus } from "@/components/connection-status";
 import { SettingsPanel } from "@/components/settings-panel";
 import { SosInterpreter } from "@/components/sos-interpreter";
@@ -14,9 +14,11 @@ const NAV = [
   { href: "/dhh", label: "DHH View", icon: Ear },
   { href: "/hearing", label: "Hearing View", icon: Users },
   { href: "/face-to-face", label: "Face-to-Face", icon: Video },
+  { href: "/interpreter", label: "Interpreter", icon: Headset },
 ];
 
 function roleForPath(pathname: string): Role {
+  if (pathname.startsWith("/interpreter")) return "interpreter";
   if (pathname.startsWith("/hearing")) return "hearing";
   if (pathname.startsWith("/dhh")) return "dhh";
   return "dhh";
@@ -68,7 +70,7 @@ export function ModeHeader() {
 
         <div className="ms-auto flex items-center gap-2">
           <ConnectionStatus role={role} />
-          <SosInterpreter compact />
+          <SosInterpreter compact role={role} />
           <SettingsPanel />
         </div>
       </div>
